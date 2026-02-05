@@ -23,26 +23,26 @@
 
 ### Key Achievements
 - Built working resume lie detector in 4 hours
-- Tested on own resume: **11% Honesty Score** (brutal truth works)
+- Tested on own resume: **0% Honesty Score** (Brutal Truth active)
 - 650KB pushed to GitHub
 - All core verification logic working
 
 ### Technical Stack
 - Express + TypeScript
 - Multer (file upload)
-- pdf-parse, mammoth (file extraction)
+- pdf-parse (file extraction - v1.1.1)
 - GitHub API (no auth token yet)
 
 ### Brutal Truths Learned
 - My GitHub: 28 repos, 3 stars = WEAK signal
-- My resume claims: 15 detected, most overclaimed
-- Need more substantial projects
+- My resume claims: 3 detected (REST API, AI, NLP), 0 verified
+- **Critical Insight:** Resume formatting may affect PDF extraction (only 1118 chars read).
+- Need more substantial projects to back up claims.
 
 ### Tomorrow (Day 2)
-- [ ] Basic interview question generator
-- [ ] Interrogation mode (easy → hard escalation)
-- [ ] Question follow-up logic
-- [ ] First working interview session
+- [ ] **Frontend Interface** (Vite + React)
+- [ ] Project Generator (The "Fixer")
+- [ ] Interrogation Mode
 
 ### Repository
 https://github.com/sp25126/FAB
