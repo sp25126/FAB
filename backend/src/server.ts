@@ -1,3 +1,4 @@
+import { GitHubAnalyzer } from './modules/github/analyzer';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -36,6 +37,25 @@ app.get('/test-github/:username', async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'GitHub API failed' });
+    }
+});
+
+// Analyzer Route
+app.post('/analyze-github', async (req, res) => {
+    try {
+        const { username } = req.body;
+        const analyzer = new GitHubAnalyzer(username);
+        await analyzer.fetchRepos();
+
+        res.json({
+            username,
+            signalQuality: analyzer.analyzeSignalQuality(),
+            topRepos: analyzer.getTopRepos(),
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Analysis failed' });
     }
 });
 
