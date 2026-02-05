@@ -1,4 +1,4 @@
-const pdf = require('pdf-parse');
+const pdfParse = require('pdf-parse');
 import mammoth from 'mammoth';
 import fs from 'fs/promises';
 
@@ -7,7 +7,7 @@ export class ResumeExtractor {
     async extractFromPDF(filePath: string): Promise<string> {
         try {
             const dataBuffer = await fs.readFile(filePath);
-            const data = await pdf(dataBuffer);
+            const data = await pdfParse(dataBuffer);
             return data.text;
         } catch (error: any) {
             throw new Error(`PDF extraction failed: ${error.message}`);

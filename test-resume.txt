@@ -1,0 +1,4 @@
+RESUME
+John Doe
+Skills: Python, JavaScript, TypeScript, React, Docker, Machine Learning
+Experience: Built web applications using Node.js and Express
