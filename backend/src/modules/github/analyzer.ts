@@ -1,51 +1,66 @@
-export interface RepoAnalysis {
+interface RepoAnalysis {
     name: string;
     stars: number;
     forks: number;
-    primaryLanguage: string;
-    hasReadme: boolean;
-    commitCount: number;
+    language: string;
+    isFork: boolean;
     lastUpdate: string;
 }
 
 export class GitHubAnalyzer {
     private username: string;
-    private repos: any[];
+    private repos: any[] = [];
 
     constructor(username: string) {
         this.username = username;
-        this.repos = [];
     }
 
     async fetchRepos(): Promise<void> {
-        const response = await fetch(`https://api.github.com/users/${this.username}/repos?per_page=100`);
+        const response = await fetch(
+            `https://api.github.com/users/${this.username}/repos?per_page=100`
+        );
+
         if (!response.ok) {
-            throw new Error(`GitHub API failed: ${response.statusText}`);
+            throw new Error(`GitHub API failed: ${response.status}`);
         }
-        this.repos = await response.json();
+
+        this.repos = await response.json() as any[];
     }
 
     analyzeSignalQuality(): string {
         const totalRepos = this.repos.length;
-        if (totalRepos === 0) return "WEAK: No repositories found";
+        const originalRepos = this.repos.filter(r => !r.fork);
+        const originalCount = originalRepos.length;
 
-        const forkedRepos = this.repos.filter(r => r.fork).length;
-        const originalRepos = totalRepos - forkedRepos;
+        const totalStars = originalRepos.reduce((sum, r) => sum + r.stargazers_count, 0);
+        const avgStars = totalStars / (originalCount || 1);
 
-        const avgStars = this.repos.reduce((sum, r) => sum + r.stargazers_count, 0) / totalRepos;
-
-        // Brutal truth logic
-        if (originalRepos < 3) {
-            return "WEAK: Mostly forks, no original work";
-        }
-        if (avgStars < 1 && originalRepos < 5) {
-            return "WEAK: Low engagement, quantity over quality";
-        }
-        if (originalRepos >= 5 && avgStars > 2) {
-            return "MODERATE: Some original work with engagement";
+        // BRUTAL HONESTY LOGIC
+        if (totalRepos === 0) {
+            return "CRITICAL: No repositories found. Create something.";
         }
 
-        return "WEAK: Needs more substantial projects";
+        if (originalCount === 0) {
+            return "CRITICAL: Only forked repos. No original work.";
+        }
+
+        if (originalCount < 3) {
+            return "WEAK: Less than 3 original projects. Not enough depth.";
+        }
+
+        if (avgStars < 1 && originalCount < 5) {
+            return "WEAK: Low engagement. Quantity without quality.";
+        }
+
+        if (originalCount >= 5 && avgStars >= 2) {
+            return "MODERATE: Some solid work. Keep building depth.";
+        }
+
+        if (originalCount >= 8 && avgStars >= 5) {
+            return "STRONG: Good portfolio with engagement.";
+        }
+
+        return "WEAK: Needs more substantial, well-documented projects.";
     }
 
     getTopRepos(count: number = 5): RepoAnalysis[] {
@@ -57,10 +72,24 @@ export class GitHubAnalyzer {
                 name: r.name,
                 stars: r.stargazers_count,
                 forks: r.forks_count,
-                primaryLanguage: r.language || 'Unknown',
-                hasReadme: true, // We'll check this later
-                commitCount: 0, // We'll fetch this later
+                language: r.language || 'Unknown',
+                isFork: r.fork,
                 lastUpdate: r.updated_at
             }));
+    }
+
+    getDetailedAnalysis() {
+        const originalRepos = this.repos.filter(r => !r.fork);
+        const languages = [...new Set(originalRepos.map(r => r.language).filter(Boolean))];
+
+        return {
+            totalRepos: this.repos.length,
+            originalRepos: originalRepos.length,
+            forkedRepos: this.repos.filter(r => r.fork).length,
+            totalStars: originalRepos.reduce((sum, r) => sum + r.stargazers_count, 0),
+            languages: languages,
+            signalQuality: this.analyzeSignalQuality(),
+            topProjects: this.getTopRepos(3)
+        };
     }
 }

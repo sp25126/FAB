@@ -3,7 +3,6 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 
-
 dotenv.config();
 
 const app = express();
@@ -21,41 +20,55 @@ app.get('/health', (req, res) => {
     });
 });
 
-// GitHub API Test
+// Refined GitHub API Test
 app.get('/test-github/:username', async (req, res) => {
     try {
-        const response = await fetch(`https://api.github.com/users/${req.params.username}/repos`);
+        const response = await fetch(`https://api.github.com/users/${req.params.username}/repos?per_page=100`);
         if (!response.ok) {
-            throw new Error(`GitHub API Error: ${response.statusText}`);
+            throw new Error(`GitHub API failed: ${response.status}`);
         }
-        const repos: any = await response.json();
+        const repos = await response.json() as any[];
+
         res.json({
             username: req.params.username,
             repoCount: repos.length,
-            message: 'GitHub API working'
+            repos: repos.map((r: any) => ({
+                name: r.name,
+                stars: r.stargazers_count,
+                language: r.language,
+                fork: r.fork
+            }))
         });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'GitHub API failed' });
+    } catch (error: any) {
+        res.status(500).json({ error: 'GitHub API failed', details: error.message });
     }
 });
 
-// Analyzer Route
+// Refined Analyzer Route
 app.post('/analyze-github', async (req, res) => {
     try {
         const { username } = req.body;
+
+        if (!username) {
+            return res.status(400).json({ error: 'Username required' });
+        }
+
         const analyzer = new GitHubAnalyzer(username);
         await analyzer.fetchRepos();
 
+        const analysis = analyzer.getDetailedAnalysis();
+
         res.json({
             username,
-            signalQuality: analyzer.analyzeSignalQuality(),
-            topRepos: analyzer.getTopRepos(),
-            timestamp: new Date().toISOString()
+            analysis,
+            timestamp: new Date().toISOString(),
+            message: 'Analysis complete - this is the brutal truth'
         });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Analysis failed' });
+    } catch (error: any) {
+        res.status(500).json({
+            error: 'Analysis failed',
+            details: error.message
+        });
     }
 });
 
