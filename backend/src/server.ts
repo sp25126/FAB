@@ -1,4 +1,6 @@
 import { GitHubAnalyzer } from './modules/github/analyzer';
+import { ResumeParser } from './modules/resume/parser';
+import { ClaimVerifier } from './modules/resume/verifier';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -67,6 +69,53 @@ app.post('/analyze-github', async (req, res) => {
     } catch (error: any) {
         res.status(500).json({
             error: 'Analysis failed',
+            details: error.message
+        });
+    }
+});
+
+// Resume Verification Route
+app.post('/verify-resume', async (req, res) => {
+    try {
+        const { username, resumeText } = req.body;
+
+        if (!username || !resumeText) {
+            return res.status(400).json({
+                error: 'Both username and resumeText required'
+            });
+        }
+
+        // Parse resume for claims
+        const parser = new ResumeParser(resumeText);
+        const claims = parser.extractClaims();
+
+        // Fetch GitHub data
+        const analyzer = new GitHubAnalyzer(username);
+        await analyzer.fetchRepos();
+
+        // Verify claims against GitHub
+        const verifier = new ClaimVerifier(analyzer);
+        const verificationResults = verifier.verifyAllClaims(
+            claims.map(c => c.skill)
+        );
+        const summary = verifier.getSummary(verificationResults);
+
+        res.json({
+            username,
+            totalClaimsFound: claims.length,
+            verification: verificationResults,
+            summary,
+            brutalTruth: summary.honestyScore < 50
+                ? "Your resume is mostly lies. Interviewers will catch this in 5 minutes."
+                : summary.honestyScore < 70
+                    ? "Too many weak claims. Build projects or remove skills."
+                    : "Honest resume. Your claims match your work.",
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error: any) {
+        res.status(500).json({
+            error: 'Verification failed',
             details: error.message
         });
     }
