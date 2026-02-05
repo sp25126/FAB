@@ -1,6 +1,8 @@
 import { GitHubAnalyzer } from './modules/github/analyzer';
 import { ResumeParser } from './modules/resume/parser';
 import { ClaimVerifier } from './modules/resume/verifier';
+import { ResumeExtractor } from './modules/resume/extractor';
+import { upload } from './config/upload';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -116,6 +118,80 @@ app.post('/verify-resume', async (req, res) => {
     } catch (error: any) {
         res.status(500).json({
             error: 'Verification failed',
+            details: error.message
+        });
+    }
+});
+
+// File upload endpoint
+app.post('/verify-resume-file', upload.single('resume'), async (req, res) => {
+    let filePath: string | undefined;
+
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        const { username } = req.body;
+        if (!username) {
+            return res.status(400).json({ error: 'GitHub username required' });
+        }
+
+        filePath = req.file.path;
+
+        // Extract text from file
+        const extractor = new ResumeExtractor();
+        const resumeText = await extractor.extractText(filePath, req.file.mimetype);
+
+        if (!resumeText || resumeText.trim().length === 0) {
+            return res.status(400).json({
+                error: 'Could not extract text from file. File may be empty or corrupted.'
+            });
+        }
+
+        // Parse resume for claims
+        const parser = new ResumeParser(resumeText);
+        const claims = parser.extractClaims();
+
+        // Fetch GitHub data
+        const analyzer = new GitHubAnalyzer(username);
+        await analyzer.fetchRepos();
+
+        // Verify claims
+        const verifier = new ClaimVerifier(analyzer);
+        const verificationResults = verifier.verifyAllClaims(
+            claims.map(c => c.skill)
+        );
+        const summary = verifier.getSummary(verificationResults);
+
+        // Cleanup uploaded file
+        await extractor.cleanup(filePath);
+
+        res.json({
+            username,
+            fileName: req.file.originalname,
+            fileType: req.file.mimetype,
+            extractedTextLength: resumeText.length,
+            claimsFound: claims.length,
+            verification: verificationResults,
+            summary,
+            brutalTruth: summary.honestyScore < 50
+                ? "Your resume is mostly lies. Interviewers will catch this in 5 minutes."
+                : summary.honestyScore < 70
+                    ? "Too many weak claims. Build projects or remove skills."
+                    : "Honest resume. Your claims match your work.",
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error: any) {
+        // Cleanup on error
+        if (filePath) {
+            const extractor = new ResumeExtractor();
+            await extractor.cleanup(filePath);
+        }
+
+        res.status(500).json({
+            error: 'File processing failed',
             details: error.message
         });
     }
