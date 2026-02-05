@@ -1,3 +1,37 @@
+# Dependencies
 node_modules/
+dist/
 .env
+
+# Uploads
 uploads/
+
+# Test outputs
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+
+# Debug logs
+llm_debug_*.txt
+logs/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Test files
+test-*.txt
+*.log
+
+# Personal resumes (don't commit)
+*Resume*.pdf

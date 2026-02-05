@@ -15,6 +15,58 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// Brain Configuration Route
+import fs from 'fs';
+import path from 'path';
+
+app.get('/config/brain', (req, res) => {
+    try {
+        const brainType = process.env.BRAIN_TYPE || 'local';
+        const remoteUrl = process.env.REMOTE_BRAIN_URL || '';
+        res.json({ brainType, remoteUrl });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/config/brain', (req, res) => {
+    try {
+        const { brainType, remoteUrl } = req.body;
+
+        // Update .env file content
+        const envPath = path.resolve(process.cwd(), '.env');
+
+        // Simple .env rewrite (preserves other keys)
+        let envContent = '';
+        if (fs.existsSync(envPath)) {
+            envContent = fs.readFileSync(envPath, 'utf-8');
+        }
+
+        const updateKey = (key: string, value: string) => {
+            const regex = new RegExp(`^${key}=.*`, 'm');
+            if (regex.test(envContent)) {
+                envContent = envContent.replace(regex, `${key}=${value}`);
+            } else {
+                envContent += `\n${key}=${value}`;
+            }
+        };
+
+        if (brainType) updateKey('BRAIN_TYPE', brainType);
+        if (remoteUrl) updateKey('REMOTE_BRAIN_URL', remoteUrl);
+
+        fs.writeFileSync(envPath, envContent.trim() + '\n');
+
+        // Force reload of dotenv in this process if needed, but for now just updating file
+        // Ideally we might reload process.env here too for immediate effect without restart
+        if (brainType) process.env.BRAIN_TYPE = brainType;
+        if (remoteUrl) process.env.REMOTE_BRAIN_URL = remoteUrl;
+
+        res.json({ success: true, message: 'Brain config updated' });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Health check
 app.get('/health', (req, res) => {
     res.json({
@@ -89,7 +141,7 @@ app.post('/verify-resume', async (req, res) => {
 
         // Parse resume for claims
         const parser = new ResumeParser(resumeText);
-        const claims = parser.extractClaims();
+        const claims = await parser.extractClaims();
 
         // Fetch GitHub data
         const analyzer = new GitHubAnalyzer(username);
@@ -151,21 +203,55 @@ app.post('/verify-resume-file', upload.single('resume'), async (req, res) => {
 
         // Parse resume for claims
         const parser = new ResumeParser(resumeText);
-        const claims = parser.extractClaims();
+        const claims = await parser.extractClaims();
 
-        // Fetch GitHub data
-        const analyzer = new GitHubAnalyzer(username);
-        await analyzer.fetchRepos();
+        console.log(`[LOG] Parsed ${claims.length} claims from resume`);
+        fs.appendFileSync(path.resolve(process.cwd(), '../logs/backend.log'),
+            `[${new Date().toISOString()}] Parsed ${claims.length} claims | Brain: ${process.env.BRAIN_TYPE}\n`);
 
-        // Verify claims
-        const verifier = new ClaimVerifier(analyzer);
-        const verificationResults = verifier.verifyAllClaims(
-            claims.map(c => c.skill)
-        );
-        const summary = verifier.getSummary(verificationResults);
+        // GitHub verification (OPTIONAL - graceful fallback)
+        let verificationResults: any[] = [];
+        let summary = {
+            totalClaims: claims.length,
+            verified: 0,
+            weakSupport: 0,
+            overclaimed: claims.length,
+            honestyScore: claims.length > 0 ? 50 : 0,
+            risk: 'MEDIUM' as string
+        };
+
+        try {
+            if (username && username !== 'fab_gui_user' && username !== 'gui_user') {
+                console.log(`[LOG] Attempting GitHub verification for: ${username}`);
+                const analyzer = new GitHubAnalyzer(username);
+                await analyzer.fetchRepos();
+
+                const verifier = new ClaimVerifier(analyzer);
+                verificationResults = verifier.verifyAllClaims(claims.map(c => c.skill));
+                summary = verifier.getSummary(verificationResults);
+                console.log(`[LOG] GitHub verification complete. Score: ${summary.honestyScore}`);
+            } else {
+                console.log(`[LOG] Skipping GitHub verification (no valid username)`);
+            }
+        } catch (ghError: any) {
+            console.warn(`[WARN] GitHub verification failed: ${ghError.message}. Using resume-only analysis.`);
+            fs.appendFileSync(path.resolve(process.cwd(), '../logs/backend.log'),
+                `[${new Date().toISOString()}] GitHub Error: ${ghError.message}\n`);
+        }
 
         // Cleanup uploaded file
         await extractor.cleanup(filePath);
+
+        const brutalTruth = claims.length === 0
+            ? "No skills were extracted. Your resume may be formatted poorly or the AI brain failed."
+            : summary.honestyScore < 50
+                ? "Your resume is mostly lies. Interviewers will catch this in 5 minutes."
+                : summary.honestyScore < 70
+                    ? "Too many weak claims. Build projects or remove skills."
+                    : "Honest resume. Your claims match your work.";
+
+        fs.appendFileSync(path.resolve(process.cwd(), '../logs/backend.log'),
+            `[${new Date().toISOString()}] Result: ${claims.length} claims, Score: ${summary.honestyScore}\n`);
 
         res.json({
             username,
@@ -175,15 +261,16 @@ app.post('/verify-resume-file', upload.single('resume'), async (req, res) => {
             claimsFound: claims.length,
             verification: verificationResults,
             summary,
-            brutalTruth: summary.honestyScore < 50
-                ? "Your resume is mostly lies. Interviewers will catch this in 5 minutes."
-                : summary.honestyScore < 70
-                    ? "Too many weak claims. Build projects or remove skills."
-                    : "Honest resume. Your claims match your work.",
+            brutalTruth,
             timestamp: new Date().toISOString()
         });
 
     } catch (error: any) {
+        // Log error
+        console.error(`[ERROR] ${error.message}`);
+        fs.appendFileSync(path.resolve(process.cwd(), '../logs/backend.log'),
+            `[${new Date().toISOString()}] ERROR: ${error.message}\n${error.stack}\n`);
+
         // Cleanup on error
         if (filePath) {
             const extractor = new ResumeExtractor();
@@ -194,6 +281,30 @@ app.post('/verify-resume-file', upload.single('resume'), async (req, res) => {
             error: 'File processing failed',
             details: error.message
         });
+    }
+});
+
+// Debug extraction endpoint
+app.post('/debug-extract', upload.single('resume'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        const extractor = new ResumeExtractor();
+        const resumeText = await extractor.extractText(req.file.path, req.file.mimetype);
+
+        await extractor.cleanup(req.file.path);
+
+        res.json({
+            extractedText: resumeText,
+            textLength: resumeText.length,
+            lowercase: resumeText.toLowerCase(),
+            // Cleaned preview
+            cleanedPreview: resumeText.replace(/\s+/g, ' ').replace(/\n+/g, ' ').trim().substring(0, 500)
+        });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
     }
 });
 
