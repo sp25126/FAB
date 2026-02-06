@@ -8,6 +8,7 @@ This guide helps you set up a **FREE GPU-powered AI Brain** on Google Colab to a
 ## Prerequisites
 - Google Account
 - Ngrok Account (free): https://ngrok.com/
+- GitHub Personal Access Token (Optional, for 10x deep scanning): [Github Token Guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
 
 ---
 

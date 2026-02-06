@@ -1,3 +1,4 @@
+
 import { LLMFactory, BrainType } from '../llm/factory';
 import { OllamaProvider } from '../llm/ollama';
 
@@ -31,6 +32,14 @@ interface EnhancedResumeData {
     usedFallback?: boolean;
     brainUsed?: string;
 }
+
+// Regex patterns for fallback skill extraction
+const SKILL_PATTERNS = {
+    languages: /\b(python|javascript|typescript|java|c\+\+|c#|ruby|go|rust|php|swift|kotlin|scala|perl|lua|r|matlab|dart)\b/gi,
+    frameworks: /\b(react|angular|vue|svelte|next\.?js|express|django|flask|fastapi|spring|laravel|rails|flutter|react native|electron)\b/gi,
+    tools: /\b(docker|kubernetes|aws|gcp|azure|git|jenkins|circleci|terraform|ansible|prometheus|grafana|redis|mongodb|postgresql|mysql)\b/gi,
+    concepts: /\b(rest api|graphql|microservices|ci\/cd|agile|scrum|tdd|oop|functional programming|system design|data structures|algorithms)\b/gi
+};
 
 export class ResumeParser {
     private resumeText: string;
@@ -124,74 +133,99 @@ export class ResumeParser {
         }
     }
 
+    private extractRegexClaims(): ResumeClaim[] {
+        const regexClaims: ResumeClaim[] = [];
+        const seenSkills = new Set<string>();
+
+        // Check each category
+        for (const [category, pattern] of Object.entries(SKILL_PATTERNS)) {
+            const matches = this.resumeText.match(pattern);
+            if (matches) {
+                matches.forEach(match => {
+                    const skill = match.toLowerCase();
+                    if (!seenSkills.has(skill)) {
+                        seenSkills.add(skill);
+                        regexClaims.push({
+                            skill,
+                            category: this.mapCategory(category),
+                            claimed: true,
+                            evidenceStrength: 'NONE'
+                        });
+                    }
+                });
+            }
+        }
+        return regexClaims;
+    }
+
     async extractClaims(): Promise<ResumeClaim[]> {
         const brainType = process.env.BRAIN_TYPE || 'local';
         const prompt = this.buildPrompt();
+        let success = false;
 
-        // Try primary provider first
+        // 1. Try Primary LLM Provider
         try {
             const provider = LLMFactory.getProvider();
             console.log(`🧠 [PRIMARY] Using provider: ${provider.name}`);
-
             console.log('🧠 Sending prompt to LLM...');
             const response = await provider.generate(prompt);
             console.log("🧠 LLM Response received");
 
-            // Parse LLM JSON
             const data = this.parseJsonSafely(response);
-
-            // Count skills extracted
-            const skillCount = (data.languages?.length || 0) +
-                (data.frameworks?.length || 0) +
-                (data.tools?.length || 0) +
-                (data.concepts?.length || 0);
-
+            const skillCount = this.countSkills(data);
             console.log(`🧠 [PRIMARY] Extracted ${skillCount} skills`);
 
-            // Check if primary provider returned valid data
-            if (skillCount === 0 && brainType === 'remote') {
-                console.warn('⚠️ [FALLBACK] Remote brain returned 0 skills, falling back to local...');
-                return this.fallbackToLocal(prompt);
+            if (skillCount > 0) {
+                this.processLLMResponse(data, provider.name, false);
+                success = true;
+            } else if (brainType === 'remote') {
+                console.warn('⚠️ [FALLBACK] Remote brain returned 0 skills, trying local...');
+                // Fall through to local
+                throw new Error("Remote returned 0 skills");
             }
-
-            this.processLLMResponse(data, provider.name, false);
-
         } catch (error: any) {
-            console.error("🧠 [PRIMARY] LLM Failed:", error.message);
-            require('fs').writeFileSync('llm_debug_error.txt', `Error: ${error.message}\nStack: ${error.stack}`);
+            console.error(`🧠 [PRIMARY] Failed: ${error.message}`);
+        }
 
-            // If remote provider failed, try local fallback
-            if (brainType === 'remote') {
-                console.warn('⚠️ [FALLBACK] Remote brain error, falling back to local...');
-                return this.fallbackToLocal(prompt);
+        // 2. Try Local Fallback if primary failed
+        if (!success && brainType === 'remote') {
+            try {
+                console.log('🔄 [FALLBACK] Trying local Ollama...');
+                const localProvider = new OllamaProvider();
+                const response = await localProvider.generate(prompt);
+                console.log("🧠 [FALLBACK] Local LLM response received");
+
+                const data = this.parseJsonSafely(response);
+                const skillCount = this.countSkills(data);
+
+                if (skillCount > 0) {
+                    this.processLLMResponse(data, 'Local Ollama (Fallback)', true);
+                    success = true;
+                }
+            } catch (error: any) {
+                console.error(`🧠 [FALLBACK] Local Failed: ${error.message}`);
             }
         }
 
-        return this.claims;
-    }
+        // 3. Last Resort: Regex Extraction
+        if (!success || this.claims.length === 0) {
+            console.warn("⚠️ [FALLBACK] AI failed completely. Using Regex extraction.");
+            const regexClaims = this.extractRegexClaims();
 
-    private async fallbackToLocal(prompt: string): Promise<ResumeClaim[]> {
-        try {
-            console.log('🔄 [FALLBACK] Trying local Ollama...');
-            const localProvider = new OllamaProvider();
-
-            const response = await localProvider.generate(prompt);
-            console.log("🧠 [FALLBACK] Local LLM Response received");
-
-            const data = this.parseJsonSafely(response);
-
-            const skillCount = (data.languages?.length || 0) +
-                (data.frameworks?.length || 0) +
-                (data.tools?.length || 0) +
-                (data.concepts?.length || 0);
-
-            console.log(`🧠 [FALLBACK] Extracted ${skillCount} skills using local brain`);
-
-            this.processLLMResponse(data, 'Local Ollama (Fallback)', true);
-
-        } catch (fallbackError: any) {
-            console.error("🧠 [FALLBACK] Local LLM also failed:", fallbackError.message);
-            require('fs').appendFileSync('llm_debug_error.txt', `\nFallback Error: ${fallbackError.message}`);
+            if (regexClaims.length > 0) {
+                this.claims = regexClaims;
+                this.enhancedData = {
+                    skills: regexClaims,
+                    experience: [],
+                    projects: [],
+                    education: [],
+                    certifications: [],
+                    summary: "Create based on regex extraction (AI unavailable)",
+                    usedFallback: true,
+                    brainUsed: "Regex Pattern Matcher"
+                };
+                console.log(`🧠 [REGEX] Extracted ${regexClaims.length} skills via patterns`);
+            }
         }
 
         return this.claims;
@@ -204,20 +238,21 @@ export class ResumeParser {
     private parseJsonSafely(text: string): any {
         require('fs').writeFileSync('llm_debug_response.txt', text);
         try {
-            // Try direct parse
             return JSON.parse(text);
         } catch (e) {
-            // Try extracting from code block
             const match = text.match(/```json([\s\S]*?)```/) || text.match(/\{[\s\S]*\}/);
             if (match) {
-                try {
-                    return JSON.parse(match[1] || match[0]);
-                } catch (e2) {
-                    return {};
-                }
+                try { return JSON.parse(match[1] || match[0]); } catch (e2) { return {}; }
             }
             return {};
         }
+    }
+
+    private countSkills(data: any): number {
+        return (data.languages?.length || 0) +
+            (data.frameworks?.length || 0) +
+            (data.tools?.length || 0) +
+            (data.concepts?.length || 0);
     }
 
     private mapCategory(cat: string): any {
@@ -231,5 +266,3 @@ export class ResumeParser {
         return this.claims;
     }
 }
-
-

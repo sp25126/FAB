@@ -1,95 +1,252 @@
+
+import fetch from 'node-fetch';
+
 interface RepoAnalysis {
     name: string;
+    description: string;
     stars: number;
     forks: number;
     language: string;
     isFork: boolean;
     lastUpdate: string;
+    topics: string[];
+}
+
+export interface DeepProjectAnalysis extends RepoAnalysis {
+    techStack: string[];
+    complexity: 'BASIC' | 'INTERMEDIATE' | 'ADVANCED';
+    architecture: string;
+    readmeContent: string;
+    coreFiles: { path: string; content: string; }[];
+    commitCount: number;
+    testCoverage: boolean;
 }
 
 export class GitHubAnalyzer {
     private username: string;
+    private token?: string;
     private repos: any[] = [];
 
-    constructor(username: string) {
+    constructor(username: string, token?: string) {
         this.username = username;
+        this.token = token;
+    }
+
+    private get headers(): { [key: string]: string } {
+        const headers: { [key: string]: string } = {
+            'Accept': 'application/vnd.github.v3+json'
+        };
+        if (this.token) {
+            headers['Authorization'] = `token ${this.token}`;
+        }
+        return headers;
     }
 
     async fetchRepos(): Promise<void> {
-        const response = await fetch(
-            `https://api.github.com/users/${this.username}/repos?per_page=100`
-        );
+        console.log(`[GitHub] Fetching repos for ${this.username}...`);
+        try {
+            const response = await fetch(
+                `https://api.github.com/users/${this.username}/repos?per_page=100&sort=updated`,
+                { headers: this.headers }
+            );
 
-        if (!response.ok) {
-            throw new Error(`GitHub API failed: ${response.status}`);
+            if (!response.ok) {
+                if (response.status === 403) throw new Error("GitHub API rate limit exceeded");
+                if (response.status === 404) throw new Error("User not found");
+                throw new Error(`GitHub API error: ${response.status}`);
+            }
+
+            this.repos = await response.json() as any[];
+            console.log(`[GitHub] Found ${this.repos.length} repositories`);
+        } catch (error: any) {
+            console.error(`[GitHub] Error: ${error.message}`);
+            this.repos = [];
         }
-
-        this.repos = await response.json() as any[];
     }
 
-    analyzeSignalQuality(): string {
-        const totalRepos = this.repos.length;
-        const originalRepos = this.repos.filter(r => !r.fork);
-        const originalCount = originalRepos.length;
-
-        const totalStars = originalRepos.reduce((sum, r) => sum + r.stargazers_count, 0);
-        const avgStars = totalStars / (originalCount || 1);
-
-        // BRUTAL HONESTY LOGIC
-        if (totalRepos === 0) {
-            return "CRITICAL: No repositories found. Create something.";
-        }
-
-        if (originalCount === 0) {
-            return "CRITICAL: Only forked repos. No original work.";
-        }
-
-        if (originalCount < 3) {
-            return "WEAK: Less than 3 original projects. Not enough depth.";
-        }
-
-        if (avgStars < 1 && originalCount < 5) {
-            return "WEAK: Low engagement. Quantity without quality.";
-        }
-
-        if (originalCount >= 5 && avgStars >= 2) {
-            return "MODERATE: Some solid work. Keep building depth.";
-        }
-
-        if (originalCount >= 8 && avgStars >= 5) {
-            return "STRONG: Good portfolio with engagement.";
-        }
-
-        return "WEAK: Needs more substantial, well-documented projects.";
-    }
-
-    getTopRepos(count: number = 5): RepoAnalysis[] {
-        return this.repos
+    async analyzeProjectsDeep(count: number = 5): Promise<DeepProjectAnalysis[]> {
+        const targetRepos = this.repos
             .filter(r => !r.fork)
             .sort((a, b) => b.stargazers_count - a.stargazers_count)
-            .slice(0, count)
-            .map(r => ({
-                name: r.name,
-                stars: r.stargazers_count,
-                forks: r.forks_count,
-                language: r.language || 'Unknown',
-                isFork: r.fork,
-                lastUpdate: r.updated_at
-            }));
+            .slice(0, count);
+
+        console.log(`[GitHub] Deep analyzing ${targetRepos.length} projects...`);
+
+        const results: DeepProjectAnalysis[] = [];
+
+        for (const repo of targetRepos) {
+            try {
+                // Parallel fetching of project details
+                const [readme, languages, fileStructure, commits] = await Promise.all([
+                    this.fetchReadme(repo.name),
+                    this.fetchLanguages(repo.name),
+                    this.fetchFileStructure(repo.name),
+                    this.fetchCommitCount(repo.name)
+                ]);
+
+                // Deep code analysis if token (and access) is available
+                let coreFiles: { path: string, content: string }[] = [];
+                let techStack: string[] = Object.keys(languages).slice(0, 5);
+                let testCoverage = false;
+
+                if (this.token) {
+                    coreFiles = await this.fetchCoreFiles(repo.name, fileStructure);
+                    const packageJson = await this.fetchFileContent(repo.name, 'package.json');
+                    if (packageJson) {
+                        techStack = [...techStack, ...this.extractDependencies(packageJson)];
+                    }
+                    testCoverage = fileStructure.some(f => f.path.includes('test') || f.path.includes('spec'));
+                }
+
+                const complexity = this.assessComplexity(repo, languages, commits, coreFiles.length);
+                const architecture = this.detectArchitecture(coreFiles, techStack);
+
+                results.push({
+                    name: repo.name,
+                    description: repo.description || '',
+                    stars: repo.stargazers_count,
+                    forks: repo.forks_count,
+                    language: repo.language || 'Unknown',
+                    isFork: repo.fork,
+                    lastUpdate: repo.updated_at,
+                    topics: repo.topics || [],
+                    readmeContent: readme.substring(0, 1500), // First 1500 chars for context
+                    techStack: Array.from(new Set(techStack)), // Unique
+                    complexity,
+                    architecture,
+                    coreFiles,
+                    commitCount: commits,
+                    testCoverage
+                });
+
+                console.log(`   - Analyzed ${repo.name} (${complexity})`);
+
+            } catch (e: any) {
+                console.warn(`[GitHub] Failed to analyze ${repo.name}: ${e.message}`);
+            }
+        }
+
+        return results;
     }
 
-    getDetailedAnalysis() {
-        const originalRepos = this.repos.filter(r => !r.fork);
-        const languages = [...new Set(originalRepos.map(r => r.language).filter(Boolean))];
+    private async fetchReadme(repoName: string): Promise<string> {
+        try {
+            const res = await fetch(`https://api.github.com/repos/${this.username}/${repoName}/readme`, { headers: this.headers });
+            if (!res.ok) return "";
+            const data: any = await res.json();
+            return Buffer.from(data.content, 'base64').toString('utf-8');
+        } catch { return ""; }
+    }
+
+    private async fetchLanguages(repoName: string): Promise<Record<string, number>> {
+        try {
+            const res = await fetch(`https://api.github.com/repos/${this.username}/${repoName}/languages`, { headers: this.headers });
+            return res.ok ? await res.json() as any : {};
+        } catch { return {}; }
+    }
+
+    private async fetchFileStructure(repoName: string): Promise<any[]> {
+        // Get the tree recursively (limit to depth 2 to save time/tokens)
+        try {
+            const branch = 'main'; // Assume main (or master, ideally check default_branch)
+            const res = await fetch(`https://api.github.com/repos/${this.username}/${repoName}/git/trees/${branch}?recursive=1`, { headers: this.headers });
+            if (!res.ok) return [];
+            const data: any = await res.json();
+            return data.tree || [];
+        } catch { return []; }
+    }
+
+    private async fetchCommitCount(repoName: string): Promise<number> {
+        try {
+            // Link header method is robust but requires parsing. Simple method: per_page=1 & page=1 gives most recent. 
+            // Getting total count is hard without traversing. 
+            // Approximation:
+            const res = await fetch(`https://api.github.com/repos/${this.username}/${repoName}/commits?per_page=1`, { headers: this.headers });
+            if (!res.ok) return 0;
+            // Parse 'Link' header for last page
+            const link = res.headers.get('link');
+            if (link) {
+                const match = link.match(/&page=(\d+)>; rel="last"/);
+                if (match) return parseInt(match[1]);
+            }
+            return 10; // Fallback
+        } catch { return 0; }
+    }
+
+    private async fetchCoreFiles(repoName: string, tree: any[]): Promise<{ path: string, content: string }[]> {
+        // Find interesting files: src/main, app.ts, server.js, models/, controllers/
+        // Also look for core setup/config files
+        const interesting = tree.filter((f: any) =>
+            f.type === 'blob' &&
+            (
+                f.path.match(/^(src|app|lib|backend|frontend|api)\/.*\.(ts|js|py|go|rs|java|css|html)$/) ||
+                f.path.match(/^.*\.(ts|js|py|go|rs|java|css|html)$/) ||
+                f.path.match(/^(Dockerfile|docker-compose\.yml|requirements\.txt|package\.json|setup\.py|go\.mod|Cargo\.toml|README\.md)$/i)
+            ) &&
+            !f.path.includes('test') &&
+            !f.path.includes('node_modules') &&
+            !f.path.includes('.git/')
+        ).slice(0, 10); // Analyze up to 10 core files
+
+        const files = [];
+        for (const file of interesting) {
+            const content = await this.fetchFileContent(repoName, file.path);
+            if (content) files.push({ path: file.path, content: content.substring(0, 3000) }); // Limit content size per file
+        }
+        return files;
+    }
+
+    private async fetchFileContent(repoName: string, path: string): Promise<string | null> {
+        try {
+            const res = await fetch(`https://api.github.com/repos/${this.username}/${repoName}/contents/${path}`, { headers: this.headers });
+            if (!res.ok) return null;
+            const data: any = await res.json();
+            return Buffer.from(data.content || '', 'base64').toString('utf-8');
+        } catch { return null; }
+    }
+
+    private extractDependencies(packageJsonStr: string): string[] {
+        try {
+            const pkg = JSON.parse(packageJsonStr);
+            const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+            return Object.keys(deps);
+        } catch { return []; }
+    }
+
+    private assessComplexity(repo: any, langs: any, commits: number, coreFilesCount: number): 'BASIC' | 'INTERMEDIATE' | 'ADVANCED' {
+        if (commits > 100 && coreFilesCount > 0) return 'ADVANCED';
+        if (repo.stargazers_count > 10 || commits > 30) return 'INTERMEDIATE';
+        return 'BASIC';
+    }
+
+    private detectArchitecture(files: { path: string, content: string }[], tech: string[]): string {
+        // Very basic heuristic
+        const paths = files.map(f => f.path).join(' ');
+        if (paths.includes('controller') && paths.includes('model')) return 'MVC';
+        if (tech.includes('react') && tech.includes('express')) return 'MERN Stack';
+        if (paths.includes('microservice') || paths.includes('docker-compose')) return 'Microservices';
+        if (paths.includes('lambda') || paths.includes('serverless')) return 'Serverless';
+        return 'Monolith/Script';
+    }
+    getDetailedAnalysis(): any {
+        const languages = new Set<string>();
+        const topProjects = this.repos
+            .filter(r => !r.fork)
+            .sort((a, b) => b.stargazers_count - a.stargazers_count)
+            .slice(0, 10);
+
+        this.repos.forEach(r => {
+            if (r.language) languages.add(r.language);
+        });
 
         return {
-            totalRepos: this.repos.length,
-            originalRepos: originalRepos.length,
-            forkedRepos: this.repos.filter(r => r.fork).length,
-            totalStars: originalRepos.reduce((sum, r) => sum + r.stargazers_count, 0),
-            languages: languages,
-            signalQuality: this.analyzeSignalQuality(),
-            topProjects: this.getTopRepos(3)
+            languages: Array.from(languages),
+            topProjects: topProjects.map(p => ({
+                name: p.name,
+                stars: p.stargazers_count,
+                description: p.description,
+                language: p.language
+            }))
         };
     }
 }

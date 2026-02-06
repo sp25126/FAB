@@ -7,8 +7,8 @@ dotenv.config();
 export type BrainType = 'local' | 'remote' | 'cloud';
 
 export class LLMFactory {
-    static getProvider(): LLMProvider {
-        const type = process.env.BRAIN_TYPE || 'local';
+    static getProvider(overrideType?: string): LLMProvider {
+        const type = overrideType || process.env.BRAIN_TYPE || 'local';
         const remoteUrl = process.env.REMOTE_BRAIN_URL || '';
 
         console.log(`🧠 LLMFactory: Creating provider for type="${type}"`);

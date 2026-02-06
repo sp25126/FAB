@@ -38,9 +38,15 @@ export class RemoteProvider implements LLMProvider {
             return data.result || data.response || JSON.stringify(data);
         } catch (error: any) {
             console.error('🌐 Remote Generate Error:', error.message);
+
             if (error.code === 'ECONNREFUSED') {
                 throw new Error('Colab brain not reachable. Is it running?');
             }
+
+            if (error.response && error.response.status === 404) {
+                throw new Error('Colab URL 404 Not Found. Your ngrok tunnel likely expired. Please copy the NEW URL from Colab.');
+            }
+
             throw new Error(`Failed to get response from Colab: ${error.message}`);
         }
     }

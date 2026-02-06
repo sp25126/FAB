@@ -6,6 +6,7 @@ FAB is an AI-powered resume verification system that exposes skill claims before
 - ✅ **VERIFIED** skills with evidence
 - ⚠️ **WEAK** claims needing work
 - ❌ **OVERCLAIMED** skills to remove
+- 🤖 **THE INTERROGATOR**: Dynamic project-based interview questions using RAG.
 
 ---
 
@@ -38,12 +39,12 @@ curl -X POST http://localhost:3000/verify-resume-file \
 | Feature | Description |
 |---------|-------------|
 | **Dual AI Brain** | Local Ollama OR Cloud GPU (Colab) |
+| **Deep GitHub Intelligence** | **10x Depth**: Scans code, READMEs, and Dockerfiles across top 10 repos. |
+| **RAG Scraper** | Discover real-world interview questions based on your specific projects. |
+| **Brutal Scoring** | **40/40/20 Metric**: Accuracy, Depth, and Clarity analyzed by AI. |
+| **Project Rotation** | 2 Strikes on a project = AI pivots to a new repo automatically. |
 | **Auto Fallback** | If Cloud fails, falls back to Local |
-| **Skill Extraction** | Languages, frameworks, tools, concepts |
-| **GitHub Verification** | Cross-check claims against your repos |
-| **Project Ideas** | Specific projects to build for each gap |
-| **Learning Paths** | Step-by-step guides to learn skills |
-| **Action Plan** | Prioritized fixes with urgency levels |
+| **Skill Extraction** | Languages, frameworks, tools, concepts from PDF |
 
 ---
 
@@ -81,16 +82,19 @@ curl -X POST http://localhost:3000/verify-resume-file \
 ```
 FAB/
 ├── backend/                # Node.js + TypeScript API
+│   ├── data/               # Persistent JSON storage (Isolated from Nodemon)
 │   └── src/
-│       ├── server.ts       # Express server
+│       ├── server.ts       # Express server (10MB Payload support)
 │       └── modules/
 │           ├── llm/        # AI providers (Ollama, Remote)
+│           ├── interview/  # RAG Questioner & Session logic
 │           ├── resume/     # Parser, Verifier
-│           └── github/     # GitHub API analyzer
+│           └── github/     # GitHub API analyzer (Recursive deep scan)
 ├── tools/colab-brain/      # Google Colab GPU script
-├── run.py                  # CLI interface
-├── SETUP.md                # Colab setup guide
-└── report.md               # Development documentation
+├── run.py                  # Highly resilient CLI interface
+├── DIARY.md                # 600+ Line technical implementation diary
+├── STATUS.md               # Phase-wise progress report
+└── SETUP.md                # Environment & Colab setup guide
 ```
 
 ---
@@ -134,9 +138,12 @@ OLLAMA_MODEL=gemma:2b     # Local LLM model
 - [x] Dual brain support (Local + Cloud)
 - [x] Enhanced skill recommendations
 - [x] Fallback system
-- [ ] Phase 2: Interview question generator
-- [ ] Phase 3: Resume rewriting suggestions
-- [ ] Phase 4: LinkedIn profile integration
+- [x] **Phase 2: Deep Intelligence & Interrogation**
+    - [x] Recursive GitHub Analysis
+    - [x] RAG-based Question Discovery
+    - [x] Project Rotation & Strike System
+- [ ] Phase 3: Desktop UI (Flet Dashboard)
+- [ ] Phase 4: Resume rewriting suggestions
 
 ---
 

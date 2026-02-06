@@ -6,6 +6,11 @@ import { upload } from './config/upload';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+import { Logger } from './modules/logger';
+import { InterviewSessionManager } from './modules/interview/session';
+import { BrainType } from './modules/llm/factory';
 
 dotenv.config();
 
@@ -13,12 +18,27 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+// Logging Middleware
+app.use((req, res, next) => {
+    const start = Date.now();
+    Logger.request(`${req.method} ${req.url}`);
+
+    const oldSend = res.send;
+    res.send = function (data) {
+        const duration = Date.now() - start;
+        Logger.debug(`${req.method} ${req.url} completed in ${duration}ms with status ${res.statusCode}`);
+        return oldSend.apply(res, arguments as any);
+    };
+
+    next();
+});
+
+const sessionManager = new InterviewSessionManager();
 
 // Brain Configuration Route
-import fs from 'fs';
-import path from 'path';
-
 app.get('/config/brain', (req, res) => {
     try {
         const brainType = process.env.BRAIN_TYPE || 'local';
@@ -32,11 +52,7 @@ app.get('/config/brain', (req, res) => {
 app.post('/config/brain', (req, res) => {
     try {
         const { brainType, remoteUrl } = req.body;
-
-        // Update .env file content
         const envPath = path.resolve(process.cwd(), '.env');
-
-        // Simple .env rewrite (preserves other keys)
         let envContent = '';
         if (fs.existsSync(envPath)) {
             envContent = fs.readFileSync(envPath, 'utf-8');
@@ -56,8 +72,6 @@ app.post('/config/brain', (req, res) => {
 
         fs.writeFileSync(envPath, envContent.trim() + '\n');
 
-        // Force reload of dotenv in this process if needed, but for now just updating file
-        // Ideally we might reload process.env here too for immediate effect without restart
         if (brainType) process.env.BRAIN_TYPE = brainType;
         if (remoteUrl) process.env.REMOTE_BRAIN_URL = remoteUrl;
 
@@ -72,242 +86,133 @@ app.get('/health', (req, res) => {
     res.json({
         status: 'ok',
         timestamp: new Date().toISOString(),
-        message: 'FAB Interview System - Day 1'
+        message: 'FAB Interview System - Production Grade'
     });
 });
 
-// Refined GitHub API Test
-app.get('/test-github/:username', async (req, res) => {
+// GitHub Analysis Endpoint (Consolidated)
+app.post('/analyze-github', async (req, res) => {
     try {
-        const response = await fetch(`https://api.github.com/users/${req.params.username}/repos?per_page=100`);
-        if (!response.ok) {
-            throw new Error(`GitHub API failed: ${response.status}`);
-        }
-        const repos = await response.json() as any[];
+        const { username, token } = req.body;
+        if (!username) return res.status(400).json({ error: 'Username required' });
+
+        const analyzer = new GitHubAnalyzer(username, token);
+        await analyzer.fetchRepos();
+        const analysis = await analyzer.analyzeProjectsDeep(10);
 
         res.json({
-            username: req.params.username,
-            repoCount: repos.length,
-            repos: repos.map((r: any) => ({
-                name: r.name,
-                stars: r.stargazers_count,
-                language: r.language,
-                fork: r.fork
-            }))
+            username,
+            projectCount: analysis.length,
+            projects: analysis
         });
     } catch (error: any) {
+        Logger.error('GitHub Analysis Error:', error);
         res.status(500).json({ error: 'GitHub API failed', details: error.message });
     }
 });
 
-// Refined Analyzer Route
-app.post('/analyze-github', async (req, res) => {
-    try {
-        const { username } = req.body;
-
-        if (!username) {
-            return res.status(400).json({ error: 'Username required' });
-        }
-
-        const analyzer = new GitHubAnalyzer(username);
-        await analyzer.fetchRepos();
-
-        const analysis = analyzer.getDetailedAnalysis();
-
-        res.json({
-            username,
-            analysis,
-            timestamp: new Date().toISOString(),
-            message: 'Analysis complete - this is the brutal truth'
-        });
-    } catch (error: any) {
-        res.status(500).json({
-            error: 'Analysis failed',
-            details: error.message
-        });
-    }
-});
-
 // Resume Verification Route
-app.post('/verify-resume', async (req, res) => {
-    try {
-        const { username, resumeText } = req.body;
-
-        if (!username || !resumeText) {
-            return res.status(400).json({
-                error: 'Both username and resumeText required'
-            });
-        }
-
-        // Parse resume for claims
-        const parser = new ResumeParser(resumeText);
-        const claims = await parser.extractClaims();
-
-        // Fetch GitHub data
-        const analyzer = new GitHubAnalyzer(username);
-        await analyzer.fetchRepos();
-
-        // Verify claims against GitHub
-        const verifier = new ClaimVerifier(analyzer);
-        const verificationResults = verifier.verifyAllClaims(
-            claims.map(c => c.skill)
-        );
-        const summary = verifier.getSummary(verificationResults);
-
-        res.json({
-            username,
-            totalClaimsFound: claims.length,
-            verification: verificationResults,
-            summary,
-            brutalTruth: summary.honestyScore < 50
-                ? "Your resume is mostly lies. Interviewers will catch this in 5 minutes."
-                : summary.honestyScore < 70
-                    ? "Too many weak claims. Build projects or remove skills."
-                    : "Honest resume. Your claims match your work.",
-            timestamp: new Date().toISOString()
-        });
-
-    } catch (error: any) {
-        res.status(500).json({
-            error: 'Verification failed',
-            details: error.message
-        });
-    }
-});
-
-// File upload endpoint
 app.post('/verify-resume-file', upload.single('resume'), async (req, res) => {
     let filePath: string | undefined;
-
     try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
-        }
+        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
         const { username } = req.body;
-        if (!username) {
-            return res.status(400).json({ error: 'GitHub username required' });
-        }
-
         filePath = req.file.path;
 
-        // Extract text from file
         const extractor = new ResumeExtractor();
         const resumeText = await extractor.extractText(filePath, req.file.mimetype);
 
         if (!resumeText || resumeText.trim().length === 0) {
-            return res.status(400).json({
-                error: 'Could not extract text from file. File may be empty or corrupted.'
-            });
+            return res.status(400).json({ error: 'Could not extract text from file.' });
         }
 
-        // Parse resume for claims
         const parser = new ResumeParser(resumeText);
         const claims = await parser.extractClaims();
 
-        console.log(`[LOG] Parsed ${claims.length} claims from resume`);
-        fs.appendFileSync(path.resolve(process.cwd(), '../logs/backend.log'),
-            `[${new Date().toISOString()}] Parsed ${claims.length} claims | Brain: ${process.env.BRAIN_TYPE}\n`);
-
-        // GitHub verification (OPTIONAL - graceful fallback)
         let verificationResults: any[] = [];
-        let summary = {
-            totalClaims: claims.length,
-            verified: 0,
-            weakSupport: 0,
-            overclaimed: claims.length,
-            honestyScore: claims.length > 0 ? 50 : 0,
-            risk: 'MEDIUM' as string
-        };
+        let summary: any = { honestyScore: 0 };
 
-        try {
-            if (username && username !== 'fab_gui_user' && username !== 'gui_user') {
-                console.log(`[LOG] Attempting GitHub verification for: ${username}`);
-                const analyzer = new GitHubAnalyzer(username);
-                await analyzer.fetchRepos();
-
-                const verifier = new ClaimVerifier(analyzer);
-                verificationResults = verifier.verifyAllClaims(claims.map(c => c.skill));
-                summary = verifier.getSummary(verificationResults);
-                console.log(`[LOG] GitHub verification complete. Score: ${summary.honestyScore}`);
-            } else {
-                console.log(`[LOG] Skipping GitHub verification (no valid username)`);
-            }
-        } catch (ghError: any) {
-            console.warn(`[WARN] GitHub verification failed: ${ghError.message}. Using resume-only analysis.`);
-            fs.appendFileSync(path.resolve(process.cwd(), '../logs/backend.log'),
-                `[${new Date().toISOString()}] GitHub Error: ${ghError.message}\n`);
+        if (username && username !== 'guest') {
+            const analyzer = new GitHubAnalyzer(username);
+            await analyzer.fetchRepos();
+            const verifier = new ClaimVerifier(analyzer);
+            verificationResults = verifier.verifyAllClaims(claims.map(c => c.skill));
+            summary = verifier.getSummary(verificationResults);
         }
 
-        // Cleanup uploaded file
         await extractor.cleanup(filePath);
-
-        const brutalTruth = claims.length === 0
-            ? "No skills were extracted. Your resume may be formatted poorly or the AI brain failed."
-            : summary.honestyScore < 50
-                ? "Your resume is mostly lies. Interviewers will catch this in 5 minutes."
-                : summary.honestyScore < 70
-                    ? "Too many weak claims. Build projects or remove skills."
-                    : "Honest resume. Your claims match your work.";
-
-        fs.appendFileSync(path.resolve(process.cwd(), '../logs/backend.log'),
-            `[${new Date().toISOString()}] Result: ${claims.length} claims, Score: ${summary.honestyScore}\n`);
 
         res.json({
             username,
-            fileName: req.file.originalname,
-            fileType: req.file.mimetype,
-            extractedTextLength: resumeText.length,
             claimsFound: claims.length,
             verification: verificationResults,
             summary,
-            brutalTruth,
             timestamp: new Date().toISOString()
         });
 
     } catch (error: any) {
-        // Log error
-        console.error(`[ERROR] ${error.message}`);
-        fs.appendFileSync(path.resolve(process.cwd(), '../logs/backend.log'),
-            `[${new Date().toISOString()}] ERROR: ${error.message}\n${error.stack}\n`);
-
-        // Cleanup on error
-        if (filePath) {
-            const extractor = new ResumeExtractor();
-            await extractor.cleanup(filePath);
-        }
-
-        res.status(500).json({
-            error: 'File processing failed',
-            details: error.message
-        });
+        Logger.error('Resume Processing Error:', error);
+        if (filePath) await new ResumeExtractor().cleanup(filePath);
+        res.status(500).json({ error: 'Verification failed', details: error.message });
     }
 });
 
-// Debug extraction endpoint
-app.post('/debug-extract', upload.single('resume'), async (req, res) => {
+// Interview Endpoints
+app.post('/interview/start', async (req, res) => {
     try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
-        }
+        const { username, context, brainType } = req.body;
+        if (!username) return res.status(400).json({ error: 'Username required' });
 
-        const extractor = new ResumeExtractor();
-        const resumeText = await extractor.extractText(req.file.path, req.file.mimetype);
+        const session = await sessionManager.createSession(
+            username,
+            context || { skills: [], projects: [], experience: [], githubStats: {} },
+            (brainType as BrainType) || 'local'
+        );
 
-        await extractor.cleanup(req.file.path);
+        const question = await sessionManager.getNextQuestion(session.id);
 
         res.json({
-            extractedText: resumeText,
-            textLength: resumeText.length,
-            lowercase: resumeText.toLowerCase(),
-            // Cleaned preview
-            cleanedPreview: resumeText.replace(/\s+/g, ' ').replace(/\n+/g, ' ').trim().substring(0, 500)
+            sessionId: session.id,
+            firstQuestion: question ? question.text : "Tell me about yourself."
+        });
+    } catch (error: any) {
+        Logger.error('Interview Start Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/interview/answer', async (req, res) => {
+    try {
+        const { sessionId, answer } = req.body;
+        if (!sessionId || !answer) return res.status(400).json({ error: 'Session ID and answer required' });
+
+        const result = await sessionManager.submitAnswer(sessionId, answer);
+        const nextQuestion = await sessionManager.getNextQuestion(sessionId);
+        const session = sessionManager.getSession(sessionId);
+
+        res.json({
+            feedback: result.feedback,
+            score: result.score,
+            satisfaction: result.satisfaction,
+            nextQuestion,
+            done: session?.status === 'completed' || !nextQuestion
         });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
 });
 
+app.get('/interview/summary/:sessionId', (req, res) => {
+    try {
+        const summary = sessionManager.getSessionSummary(req.params.sessionId);
+        if (!summary) return res.status(404).json({ error: 'Session not found' });
+        res.json(summary);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.listen(PORT, () => {
-    console.log(`🚀 FAB running on port ${PORT}`);
+    console.log(`\n🚀 FAB Backend running on http://localhost:${PORT}`);
 });
