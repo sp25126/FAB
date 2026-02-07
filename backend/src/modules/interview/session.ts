@@ -1,6 +1,8 @@
 
-import { RAGQuestioner, CandidateContext, Question } from './rag-questioner';
+import { AIQuestioner } from './ai-questioner';
+import { CandidateContext, Question } from './types';
 import { BrainType } from '../llm/factory';
+import { HistoryStorage, InterviewRecord } from '../history/storage';
 
 export interface InterviewSession {
     id: string;
@@ -17,7 +19,8 @@ export interface InterviewSession {
     satisfactionScore: number; // 0-100
     status: 'active' | 'completed';
     startedAt: Date;
-    ragQuestioner: RAGQuestioner;
+    aiQuestioner: AIQuestioner;
+    projectsFocused: Set<string>;
 }
 
 export class InterviewSessionManager {
@@ -29,10 +32,9 @@ export class InterviewSessionManager {
         brainType: BrainType = 'local'
     ): Promise<InterviewSession> {
         const sessionId = `interview_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        const rag = new RAGQuestioner(context, brainType);
+        const ai = new AIQuestioner(context, brainType);
 
-        // Initialize RAG (scrape background questions)
-        rag.initialize().catch(err => console.warn('RAG init warning:', err));
+        // AI Questioner is on-demand, no bg init needed
 
         const session: InterviewSession = {
             id: sessionId,
@@ -43,7 +45,8 @@ export class InterviewSessionManager {
             satisfactionScore: 50, // Start neutral
             status: 'active',
             startedAt: new Date(),
-            ragQuestioner: rag
+            aiQuestioner: ai,
+            projectsFocused: new Set()
         };
 
         this.sessions.set(sessionId, session);
@@ -64,8 +67,8 @@ export class InterviewSessionManager {
             return null;
         }
 
-        // Generate Q via RAG
-        const questions = await session.ragQuestioner.generateQuestions(1);
+        // Generate Q via AI (Agentic Mode: Pass History)
+        const questions = await session.aiQuestioner.generateQuestions(session.questionHistory, 1);
         if (questions && questions.length > 0) {
             session.currentQuestion = questions[0];
             return questions[0];
@@ -80,8 +83,8 @@ export class InterviewSessionManager {
             throw new Error('No active question or session');
         }
 
-        // Evaluate answer via LLM
-        const evaluation = await session.ragQuestioner.evaluateAnswer(answer, session.currentQuestion);
+        // Evaluate answer via AI
+        const evaluation = await session.aiQuestioner.evaluateAnswer(answer, session.currentQuestion);
 
         // Update satisfaction score using moving average-ish approach
         const momentum = 0.25; // Slightly faster shift
@@ -95,6 +98,11 @@ export class InterviewSessionManager {
             feedback: evaluation.feedback,
             redFlags: evaluation.redFlags
         });
+
+        // Track project focus
+        if (session.currentQuestion.type === 'PROJECT' && session.currentQuestion.context) {
+            session.projectsFocused.add(session.currentQuestion.context);
+        }
 
         return {
             score: evaluation.score,
@@ -137,5 +145,44 @@ export class InterviewSessionManager {
                 : "NO HIRE: Candidate failed to defend their resume claims.",
             history: session.questionHistory
         };
+    }
+
+    async completeSession(sessionId: string): Promise<InterviewRecord> {
+        const session = this.sessions.get(sessionId);
+        if (!session) throw new Error('Session not found');
+
+        session.status = 'completed';
+
+        // Determine verdict
+        let verdict: 'FAIL' | 'WEAK' | 'PASS' | 'STRONG';
+        if (session.satisfactionScore < 50) verdict = 'FAIL';
+        else if (session.satisfactionScore < 65) verdict = 'WEAK';
+        else if (session.satisfactionScore < 80) verdict = 'PASS';
+        else verdict = 'STRONG';
+
+        // Identify weakest skills
+        const weakestSkills = session.questionHistory
+            .filter(q => q.score < 60)
+            .map(q => "General")
+            .slice(0, 3);
+
+        const record: InterviewRecord = {
+            id: sessionId,
+            username: session.username,
+            timestamp: new Date().toISOString(),
+            score: Math.round(session.satisfactionScore),
+            questionsAsked: session.questionHistory.length,
+            questionsAnswered: session.questionHistory.length,
+            skillsTested: Array.from(new Set(session.context.skills)),
+            redFlags: session.questionHistory.reduce((acc, q) => acc + (q.redFlags ? q.redFlags.length : 0), 0),
+            verdict,
+            projectsFocused: Array.from(session.projectsFocused),
+            weakestSkills: Array.from(new Set(weakestSkills))
+        };
+
+        const storage = new HistoryStorage(session.username);
+        await storage.saveRecord(record);
+
+        return record;
     }
 }

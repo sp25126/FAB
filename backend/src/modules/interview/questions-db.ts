@@ -1,277 +1,247 @@
-export interface QuestionTemplate {
-    skill: string;
-    difficulty: 'easy' | 'medium' | 'hard';
-    question: string;
-    followUps: string[];
-    redFlags: string[]; // Words that indicate weak understanding
-}
+/**
+ * Static Question Database
+ * Pre-seeded questions for interview diversity:
+ * - Behavioral: Teamwork, conflict, deadlines, growth
+ * - General CS: Algorithms, design patterns, system design
+ * - Technical: Framework-specific, language-specific
+ */
 
-export const QUESTION_DATABASE: QuestionTemplate[] = [
-    // React Questions
-    {
-        skill: 'react',
-        difficulty: 'easy',
-        question: "You mentioned React on your resume. Walk me through how React's virtual DOM works.",
-        followUps: [
-            "How does React decide when to re-render a component?",
-            "What's the difference between controlled and uncontrolled components?",
-            "When would you use useEffect vs useLayoutEffect?"
-        ],
-        redFlags: ['basically', 'kind of', 'i think', 'something like', 'similar to']
-    },
-    {
-        skill: 'react',
-        difficulty: 'medium',
-        question: "In your project, how did you handle state management? Why did you choose that approach?",
-        followUps: [
-            "What problems did you face with prop drilling?",
-            "How would you optimize re-renders in a large component tree?",
-            "Explain the difference between Redux and Context API in your use case."
-        ],
-        redFlags: ['just used', 'followed tutorial', 'copy pasted']
-    },
+import { Question } from './rag-questioner';
 
-    // Node.js Questions
+export const BEHAVIORAL_QUESTIONS: Question[] = [
     {
-        skill: 'node.js',
-        difficulty: 'easy',
-        question: "You listed Node.js as a skill. Explain the event loop in Node.js.",
-        followUps: [
-            "What's the difference between process.nextTick and setImmediate?",
-            "How does Node.js handle blocking operations?",
-            "What's the purpose of the cluster module?"
-        ],
-        redFlags: ['asynchronous', 'non-blocking', 'javascript runtime']
+        text: "Tell me about a time you had to work with a difficult team member. How did you handle it?",
+        context: "Behavioral: Teamwork",
+        expectedPoints: ["Conflict resolution", "Communication skills", "Professional attitude"],
+        difficulty: "MEDIUM",
+        type: "BEHAVIORAL"
     },
     {
-        skill: 'node.js',
-        difficulty: 'hard',
-        question: "How would you handle a memory leak in a Node.js production application?",
-        followUps: [
-            "What tools would you use to profile memory usage?",
-            "How do you identify which part of your code is leaking?",
-            "What's the difference between heap memory and stack memory?"
-        ],
-        redFlags: ['restart server', 'never had', 'not sure']
-    },
-
-    // Docker Questions
-    {
-        skill: 'docker',
-        difficulty: 'easy',
-        question: "You mentioned Docker. What's the difference between a container and an image?",
-        followUps: [
-            "How do you optimize Docker image size?",
-            "What's the difference between COPY and ADD in a Dockerfile?",
-            "Explain Docker layers and caching."
-        ],
-        redFlags: ['virtualization', 'like a VM', 'packages everything']
-    },
-
-    // REST API Questions
-    {
-        skill: 'rest api',
-        difficulty: 'medium',
-        question: "You've built REST APIs. When would you use PUT vs PATCH?",
-        followUps: [
-            "How do you handle API versioning?",
-            "What's idempotency and why does it matter?",
-            "How do you secure your API endpoints?"
-        ],
-        redFlags: ['crud operations', 'endpoints', 'json']
-    },
-
-    // Database Questions
-    {
-        skill: 'mongodb',
-        difficulty: 'medium',
-        question: "How do you design a schema in MongoDB for a one-to-many relationship?",
-        followUps: [
-            "When would you embed vs reference documents?",
-            "How do you handle data consistency in MongoDB?",
-            "What indexes would you create and why?"
-        ],
-        redFlags: ['nosql', 'flexible', 'json documents']
+        text: "Describe a situation where you had to meet a tight deadline. What was your approach?",
+        context: "Behavioral: Time Management",
+        expectedPoints: ["Prioritization", "Time management", "Stress handling"],
+        difficulty: "MEDIUM",
+        type: "BEHAVIORAL"
     },
     {
-        skill: 'sql',
-        difficulty: 'medium',
-        question: "Explain the difference between a LEFT JOIN and an INNER JOIN.",
-        followUps: [
-            "When would you use a CROSS JOIN?",
-            "What is a subquery and when is it less efficient than a JOIN?",
-            "Explain the concept of database normalization up to 3NF."
-        ],
-        redFlags: ['tables', 'rows', 'columns', 'link']
+        text: "Give an example of a time you made a mistake in your code that made it to production. How did you handle it?",
+        context: "Behavioral: Accountability",
+        expectedPoints: ["Ownership", "Problem solving", "Learning from mistakes"],
+        difficulty: "HARD",
+        type: "BEHAVIORAL"
     },
-
-    // Python Questions
     {
-        skill: 'python',
-        difficulty: 'easy',
-        question: "Explain the difference between a list and a tuple in Python.",
-        followUps: [
-            "When would you use a tuple over a list?",
-            "What's the difference between shallow and deep copy?",
-            "How does Python's garbage collection work?"
-        ],
-        redFlags: ['mutable', 'immutable', 'basically the same']
+        text: "Tell me about a time you had to learn a new technology quickly. How did you approach it?",
+        context: "Behavioral: Learning",
+        expectedPoints: ["Self-learning ability", "Adaptability", "Resource utilization"],
+        difficulty: "EASY",
+        type: "BEHAVIORAL"
     },
-
-    // Machine Learning Questions
     {
-        skill: 'machine learning',
-        difficulty: 'hard',
-        question: "You mentioned Machine Learning. Explain the bias-variance tradeoff.",
-        followUps: [
-            "How do you detect overfitting in your model?",
-            "What's the difference between L1 and L2 regularization?",
-            "When would you use cross-validation?"
-        ],
-        redFlags: ['ai', 'predictions', 'algorithms', 'training data']
+        text: "Describe a project where you took initiative beyond your assigned responsibilities.",
+        context: "Behavioral: Initiative",
+        expectedPoints: ["Proactiveness", "Ownership", "Impact"],
+        difficulty: "MEDIUM",
+        type: "BEHAVIORAL"
     },
-
-    // Git Questions
     {
-        skill: 'git',
-        difficulty: 'medium',
-        question: "How do you resolve a merge conflict in Git?",
-        followUps: [
-            "What's the difference between rebase and merge?",
-            "When would you use git cherry-pick?",
-            "How do you undo a commit that's already pushed?"
-        ],
-        redFlags: ['version control', 'save code', 'branches']
+        text: "How do you handle disagreements with your manager or senior developers about technical decisions?",
+        context: "Behavioral: Communication",
+        expectedPoints: ["Respectful communication", "Data-driven arguments", "Compromise"],
+        difficulty: "HARD",
+        type: "BEHAVIORAL"
     },
-
-    // Java Questions
     {
-        skill: 'java',
-        difficulty: 'medium',
-        question: "Explain the difference between HashMap and ConcurrentHashMap in Java.",
-        followUps: [
-            "How does the 'synchronized' keyword work?",
-            "What are Java Streams and when should you avoid them?",
-            "Explain the Java Memory Model (JVM Heap vs Stack)."
-        ],
-        redFlags: ['dictionary', 'list', 'i think']
+        text: "Tell me about a time you received critical feedback. How did you respond?",
+        context: "Behavioral: Growth Mindset",
+        expectedPoints: ["Receptiveness", "Self-improvement", "Professional maturity"],
+        difficulty: "MEDIUM",
+        type: "BEHAVIORAL"
     },
-
-    // TypeScript Questions
     {
-        skill: 'typescript',
-        difficulty: 'medium',
-        question: "What is the difference between an 'interface' and a 'type' in TypeScript?",
-        followUps: [
-            "What are generics and why are they useful?",
-            "Explain 'lookup types' and 'mapped types'.",
-            "How does 'unknown' differ from 'any'?"
-        ],
-        redFlags: ['classes', 'objects', 'definitions']
+        text: "Describe your approach to code reviews. How do you give constructive feedback?",
+        context: "Behavioral: Collaboration",
+        expectedPoints: ["Constructive criticism", "Technical communication", "Mentoring"],
+        difficulty: "MEDIUM",
+        type: "BEHAVIORAL"
     },
-
-    // C++ Questions
     {
-        skill: 'c++',
-        difficulty: 'hard',
-        question: "Explain RAII (Resource Acquisition Is Initialization) in C++.",
-        followUps: [
-            "What's the difference between a pointer and a reference?",
-            "Explain smart pointers (unique_ptr, shared_ptr) and how they prevent leaks.",
-            "What is the VTable and how does dynamic dispatch work?"
-        ],
-        redFlags: ['memory', 'malloc', 'free']
+        text: "What motivates you to keep learning and improving as a developer?",
+        context: "Behavioral: Motivation",
+        expectedPoints: ["Passion for technology", "Growth mindset", "Career goals"],
+        difficulty: "EASY",
+        type: "BEHAVIORAL"
     },
-
-    // AWS Questions
     {
-        skill: 'aws',
-        difficulty: 'medium',
-        question: "How would you design a highly available architecture for a web app on AWS?",
-        followUps: [
-            "What is the difference between an Application Load Balancer and a Network Load Balancer?",
-            "How does S3 versioning work?",
-            "Explain the Shared Responsibility Model."
-        ],
-        redFlags: ['cloud', 'amazon', 'hosting']
-    },
-
-    // Kubernetes Questions
-    {
-        skill: 'kubernetes',
-        difficulty: 'hard',
-        question: "Explain the lifecycle of a Pod in Kubernetes.",
-        followUps: [
-            "What is the difference between a Deployment and a StatefulSet?",
-            "How do Services (ClusterIP vs NodePort) work in K8s?",
-            "Explain Ingress Controllers and how they route traffic."
-        ],
-        redFlags: ['containers', 'scaling', 'orchestration']
-    },
-
-    // CI/CD Questions
-    {
-        skill: 'ci/cd',
-        difficulty: 'medium',
-        question: "What's the difference between Continuous Delivery and Continuous Deployment?",
-        followUps: [
-            "Explain how a typical CI/CD pipeline looks for a microservices app.",
-            "What is 'Build Once, Deploy Many'?",
-            "How do you handle rollbacks in a CI/CD process?"
-        ],
-        redFlags: ['automation', 'jenkins', 'github actions']
-    },
-
-    // CSS/Tailwind Questions
-    {
-        skill: 'css',
-        difficulty: 'medium',
-        question: "Explain the CSS Box Model and how 'box-sizing: border-box' changes it.",
-        followUps: [
-            "What's the difference between Flexbox and CSS Grid?",
-            "How do CSS Variables (Custom Properties) differ from SASS variables?",
-            "Explain specificity and how to avoid using !important."
-        ],
-        redFlags: ['styling', 'colors', 'design']
-    },
-
-    // Agile Questions
-    {
-        skill: 'agile',
-        difficulty: 'easy',
-        question: "What is a 'Sprint' in Scrum, and what happens in a Daily Standup?",
-        followUps: [
-            "How do you estimate tasks (Story Points)?",
-            "What is a 'Definition of Done'?",
-            "What's the role of a Scrum Master vs a Product Owner?"
-        ],
-        redFlags: ['meetings', 'updates', 'talking']
-    },
-
-    // Linux/Bash Questions
-    {
-        skill: 'linux',
-        difficulty: 'medium',
-        question: "What is the difference between a symbolic link (soft link) and a hard link in Linux?",
-        followUps: [
-            "How do you check for running processes and kill one?",
-            "Explain the file permission structure (chmod 755).",
-            "What's the purpose of the /etc/hosts file?"
-        ],
-        redFlags: ['operating system', 'terminal', 'commands']
+        text: "Tell me about a time you had to explain a complex technical concept to a non-technical stakeholder.",
+        context: "Behavioral: Communication",
+        expectedPoints: ["Simplification", "Analogies", "Patience"],
+        difficulty: "MEDIUM",
+        type: "BEHAVIORAL"
     }
 ];
 
-export function getQuestionsForSkill(skill: string, difficulty?: string): QuestionTemplate[] {
-    const normalized = skill.toLowerCase();
-    return QUESTION_DATABASE.filter(q =>
-        q.skill === normalized &&
-        (!difficulty || q.difficulty === difficulty)
-    );
+export const GENERAL_CS_QUESTIONS: Question[] = [
+    {
+        text: "Explain the difference between a stack and a queue. When would you use each?",
+        context: "General CS: Data Structures",
+        expectedPoints: ["LIFO vs FIFO", "Use cases", "Time complexity"],
+        difficulty: "EASY",
+        type: "TECHNICAL"
+    },
+    {
+        text: "What is the time complexity of common sorting algorithms? When would you choose one over another?",
+        context: "General CS: Algorithms",
+        expectedPoints: ["O(n log n) vs O(n²)", "Stability", "Space complexity"],
+        difficulty: "MEDIUM",
+        type: "TECHNICAL"
+    },
+    {
+        text: "Explain the concept of Big O notation and why it matters in software development.",
+        context: "General CS: Complexity Analysis",
+        expectedPoints: ["Asymptotic analysis", "Performance implications", "Practical examples"],
+        difficulty: "EASY",
+        type: "TECHNICAL"
+    },
+    {
+        text: "What is the difference between SQL and NoSQL databases? When would you choose one over the other?",
+        context: "General CS: Databases",
+        expectedPoints: ["ACID vs BASE", "Schema flexibility", "Scaling patterns"],
+        difficulty: "MEDIUM",
+        type: "TECHNICAL"
+    },
+    {
+        text: "Explain the concept of caching. What are some common caching strategies?",
+        context: "General CS: System Design",
+        expectedPoints: ["Cache invalidation", "LRU/LFU", "Cache-aside pattern"],
+        difficulty: "MEDIUM",
+        type: "TECHNICAL"
+    },
+    {
+        text: "What is the CAP theorem? How does it affect distributed system design?",
+        context: "General CS: Distributed Systems",
+        expectedPoints: ["Consistency, Availability, Partition tolerance", "Trade-offs", "Examples"],
+        difficulty: "HARD",
+        type: "TECHNICAL"
+    },
+    {
+        text: "Explain the difference between process and thread. What are the trade-offs?",
+        context: "General CS: Operating Systems",
+        expectedPoints: ["Memory isolation", "Context switching", "Concurrency"],
+        difficulty: "MEDIUM",
+        type: "TECHNICAL"
+    },
+    {
+        text: "What are design patterns? Explain one pattern you've used in a real project.",
+        context: "General CS: Design Patterns",
+        expectedPoints: ["Pattern definition", "Real-world application", "Benefits"],
+        difficulty: "MEDIUM",
+        type: "TECHNICAL"
+    },
+    {
+        text: "Explain how HTTPS works. What happens when you visit a secure website?",
+        context: "General CS: Networking",
+        expectedPoints: ["TLS handshake", "Certificate validation", "Encryption"],
+        difficulty: "HARD",
+        type: "TECHNICAL"
+    },
+    {
+        text: "What is recursion? What are its pros and cons compared to iteration?",
+        context: "General CS: Programming Concepts",
+        expectedPoints: ["Base case", "Stack overflow", "Tail recursion"],
+        difficulty: "EASY",
+        type: "TECHNICAL"
+    }
+];
+
+export const TECHNICAL_FRAMEWORK_QUESTIONS: Question[] = [
+    {
+        text: "Explain the difference between React's useState and useReducer hooks. When would you use each?",
+        context: "Technical: React",
+        expectedPoints: ["State complexity", "Performance", "Predictability"],
+        difficulty: "MEDIUM",
+        type: "TECHNICAL"
+    },
+    {
+        text: "What is the event loop in Node.js? How does it handle asynchronous operations?",
+        context: "Technical: Node.js",
+        expectedPoints: ["Call stack", "Callback queue", "Non-blocking I/O"],
+        difficulty: "HARD",
+        type: "TECHNICAL"
+    },
+    {
+        text: "Explain the difference between REST and GraphQL. What are the trade-offs?",
+        context: "Technical: APIs",
+        expectedPoints: ["Over-fetching", "Type system", "Complexity"],
+        difficulty: "MEDIUM",
+        type: "TECHNICAL"
+    },
+    {
+        text: "What is Docker? How does containerization differ from virtualization?",
+        context: "Technical: DevOps",
+        expectedPoints: ["Container isolation", "Image layers", "Resource efficiency"],
+        difficulty: "MEDIUM",
+        type: "TECHNICAL"
+    },
+    {
+        text: "Explain the difference between authentication and authorization. How would you implement both?",
+        context: "Technical: Security",
+        expectedPoints: ["Identity vs permissions", "JWT", "RBAC"],
+        difficulty: "MEDIUM",
+        type: "TECHNICAL"
+    },
+    {
+        text: "What is TypeScript? What are the benefits of using it over plain JavaScript?",
+        context: "Technical: TypeScript",
+        expectedPoints: ["Type safety", "IDE support", "Compile-time errors"],
+        difficulty: "EASY",
+        type: "TECHNICAL"
+    },
+    {
+        text: "Explain the concept of middleware in Express.js. How would you create a custom middleware?",
+        context: "Technical: Express",
+        expectedPoints: ["Request/response cycle", "next()", "Error handling"],
+        difficulty: "MEDIUM",
+        type: "TECHNICAL"
+    },
+    {
+        text: "What is Git branching strategy? Explain Git Flow or your preferred approach.",
+        context: "Technical: Git",
+        expectedPoints: ["Feature branches", "Release management", "Hotfixes"],
+        difficulty: "EASY",
+        type: "TECHNICAL"
+    },
+    {
+        text: "Explain database indexing. When should you add an index and what are the trade-offs?",
+        context: "Technical: Databases",
+        expectedPoints: ["Query performance", "Write overhead", "Index types"],
+        difficulty: "HARD",
+        type: "TECHNICAL"
+    },
+    {
+        text: "What is CI/CD? How would you set up a deployment pipeline for a web application?",
+        context: "Technical: DevOps",
+        expectedPoints: ["Continuous integration", "Automated testing", "Deployment strategies"],
+        difficulty: "MEDIUM",
+        type: "TECHNICAL"
+    }
+];
+
+/**
+ * Get a random subset of questions from each category
+ */
+export function getRandomQuestions(count: number = 5): Question[] {
+    const allQuestions = [...BEHAVIORAL_QUESTIONS, ...GENERAL_CS_QUESTIONS, ...TECHNICAL_FRAMEWORK_QUESTIONS];
+    const shuffled = allQuestions.sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, count);
 }
 
-export function getQuestionsByDifficulty(skills: string[], difficulty: 'easy' | 'medium' | 'hard'): QuestionTemplate[] {
-    return skills.flatMap(skill =>
-        getQuestionsForSkill(skill, difficulty)
-    );
+/**
+ * Get questions by type
+ */
+export function getQuestionsByType(type: 'BEHAVIORAL' | 'TECHNICAL', count: number = 5): Question[] {
+    const pool = type === 'BEHAVIORAL' ? BEHAVIORAL_QUESTIONS :
+        [...GENERAL_CS_QUESTIONS, ...TECHNICAL_FRAMEWORK_QUESTIONS];
+    const shuffled = pool.sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, count);
 }

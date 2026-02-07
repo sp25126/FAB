@@ -94,10 +94,11 @@ export class RAGQuestioner {
         const language = this.context.projects[0]?.language || 'javascript';
         const ragSuggestions = (await this.vectorDB.searchRelevant(
             this.context.skills,
-            JSON.stringify(this.context.projects.slice(0, 2)),
+            JSON.stringify(this.context.projects.slice(0, 10)), // Use all 10 projects for context
             10,
             { techStack, language }
         )).filter(s => !this.askedQuestions.has(s.question));
+
 
         // 2. Hybrid Pool Construction
         const provider = LLMFactory.getProvider(this.brainType);
@@ -108,37 +109,63 @@ export class RAGQuestioner {
             const parsed = await provider.generateJSON<any[]>(prompt);
 
             if (Array.isArray(parsed)) {
+                const aiGeneratedQuestions: any[] = [];
+
                 parsed.forEach((q: any) => {
                     const finalQ: Question = {
                         text: q.question || q.text,
                         context: q.context || "Hybrid Context",
                         expectedPoints: q.expectedPoints || [],
                         difficulty: q.difficulty || 'MEDIUM',
-                        source: 'Hybrid-AI',
+                        source: 'AI-Generated',
                         type: q.type || 'TECHNICAL'
                     };
 
                     if (finalQ.text && !this.askedQuestions.has(finalQ.text)) {
                         questions.push(finalQ);
                         this.askedQuestions.add(finalQ.text);
+
+                        // Collect for RAG storage
+                        aiGeneratedQuestions.push({
+                            question: finalQ.text,
+                            topic: finalQ.context,
+                            source: 'AI-Generated',
+                            difficulty: finalQ.difficulty
+                        });
                     }
                 });
+
+                // Persist AI-generated questions to RAG for future use
+                if (aiGeneratedQuestions.length > 0) {
+                    console.log(`[RAG] Storing ${aiGeneratedQuestions.length} AI-generated questions to vector-db...`);
+                    await this.vectorDB.storeQuestions(aiGeneratedQuestions);
+                }
             }
         } catch (e) {
             console.error("[RAG] AI Hybrid generation failed", e);
         }
 
-        // 3. Robust Fallback (Safety Seeds)
-        // If AI fails AND RAG is empty (not yet scraped), we MUST provide something
+        // 3. Robust Fallback (Comprehensive Question Database)
+        // If AI fails AND RAG is empty (not yet scraped), use pre-seeded questions
         if (questions.length < count) {
-            console.log("[RAG] AI pool empty, using Safety Seeds...");
-            const safetySeeds: Question[] = [
-                { text: `Based on your experience with ${this.context.skills[0] || 'software development'}, what was the most challenging bug you solved?`, type: 'TECHNICAL', context: 'SafetyFallback', expectedPoints: ['Problem solving', 'Technical depth'], difficulty: 'MEDIUM' },
-                { text: "Can you explain the architecture of one of your recent projects in detail?", type: 'PROJECT', context: 'SafetyFallback', expectedPoints: ['System design', 'Ownership'], difficulty: 'MEDIUM' },
-                { text: "How do you ensure code quality and maintainability in a teams environment?", type: 'BEHAVIORAL', context: 'SafetyFallback', expectedPoints: ['Testing', 'Code reviews'], difficulty: 'MEDIUM' }
-            ];
+            console.log("[RAG] AI pool insufficient, using Question Database fallback...");
+            const { getRandomQuestions, BEHAVIORAL_QUESTIONS, GENERAL_CS_QUESTIONS } = await import('./questions-db');
 
-            for (const q of safetySeeds) {
+            // Ensure a mix of behavioral and technical questions
+            const behavioralCount = Math.ceil((count - questions.length) / 3);
+            const technicalCount = count - questions.length - behavioralCount;
+
+            const behavioralSeeds = BEHAVIORAL_QUESTIONS
+                .filter(q => !this.askedQuestions.has(q.text))
+                .slice(0, behavioralCount);
+
+            const technicalSeeds = GENERAL_CS_QUESTIONS
+                .filter(q => !this.askedQuestions.has(q.text))
+                .slice(0, technicalCount);
+
+            const mixedSeeds = [...behavioralSeeds, ...technicalSeeds];
+
+            for (const q of mixedSeeds) {
                 if (!this.askedQuestions.has(q.text) && questions.length < count) {
                     questions.push(q);
                     this.askedQuestions.add(q.text);
@@ -272,34 +299,41 @@ export class RAGQuestioner {
             .join('\n\n');
 
         return `
-            You are a lead technical interviewer conducting a deep-dive interview.
+            You are a lead technical interviewer conducting a comprehensive interview.
             Generate ${count} challenge questions for the candidate based on their background.
+            
+            CRITICAL: You MUST generate a MIX of question types. If ${count} >= 3, include at least:
+            - 1 PROJECT question (specific to their GitHub repos)
+            - 1 BEHAVIORAL question (teamwork, conflict, learning)
+            - 1 TECHNICAL question (general CS concepts OR framework-specific)
 
             CANDIDATE PROFILE:
             Resume Skills (${skillsCount}): ${skills}
-            Parsed GitHub Projects:
+            Parsed GitHub Projects (${this.context.projects.length} total):
             ${projects}
 
-            CATEGORIES TO COVER:
-            1. PROJECT DEEP DIVE: Ask about specific architectural choices, file structures, or technical challenges discovered in their repos.
-            2. TECHNICAL RIGOR: Ask challenging questions about their top skills (e.g. Node.js concurrency, TypeScript generics, etc).
-            3. BEHAVIORAL/ENGINEERING CULTURE: Ask how they handle collaboration, code reviews, or complex debugging in their projects.
+            QUESTION CATEGORIES (MUST USE ALL):
+            1. PROJECT DEEP DIVE: Ask about specific architectural choices, file structures, or technical challenges discovered in their repos. Reference project names directly.
+            2. BEHAVIORAL: Ask situational questions about teamwork, handling deadlines, learning new technology, dealing with failure, or giving/receiving feedback.
+            3. GENERAL CS/ALGORITHMS: Ask about data structures, system design concepts, caching, databases, or networking fundamentals.
+            4. TECHNICAL RIGOR: Ask challenging questions about their top skills (e.g. Node.js concurrency, TypeScript generics, React hooks).
 
             RULES:
-            - RANDOMIZATION: Each question MUST focus on a DIFFERENT project from the list below if possible.
-            - ROTATION: If a project has 1 strike, be CAUTIOUS. If a project is MISSING from the list below (due to 2 strikes), NEVER ask about it again.
-            - SPECIFICITY: Mention the project name and reference specific files, architectures (e.g., MVC, Monolith), or tech stack found in analysis.
-            - DEPTH: Ask "why" or "how" questions (e.g., "Why did you use Docker in project X instead of just a local script?").
-            - CHALLENGING: Avoid definitions. Focus on trade-offs and implementation challenges.
+            - DIVERSITY: Generate a BALANCED mix across ALL categories above.
+            - RANDOMIZATION: Each PROJECT question MUST focus on a DIFFERENT project from the list.
+            - ROTATION: If a project has 1 strike, be CAUTIOUS. If a project is MISSING (2 strikes), NEVER ask about it.
+            - SPECIFICITY: For PROJECT questions, mention the project name and reference specific files, architectures, or tech stack.
+            - DEPTH: Ask "why" or "how" questions, not definitions.
+            - CHALLENGING: Focus on trade-offs and implementation challenges.
             
             Return JSON Array ONLY:
             [
                 {
-                    "question": "In your [Project X] repository, I saw you used [Tech Y] in [File Z]. Why did you choose this implementation over [Alternative]?",
+                    "question": "Your question text here",
                     "type": "PROJECT | TECHNICAL | BEHAVIORAL",
-                    "context": "Project: [Project X]",
-                    "expectedPoints": ["Understanding of [Tech Y]", "[Alternative] trade-offs"],
-                    "difficulty": "HARD"
+                    "context": "Project: [Name]" or "General CS" or "Behavioral",
+                    "expectedPoints": ["Point 1", "Point 2"],
+                    "difficulty": "EASY | MEDIUM | HARD"
                 }
             ]
         `;

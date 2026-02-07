@@ -10,7 +10,10 @@ import fs from 'fs';
 import path from 'path';
 import { Logger } from './modules/logger';
 import { InterviewSessionManager } from './modules/interview/session';
+import { AIQuestioner } from './modules/interview/ai-questioner';
 import { BrainType } from './modules/llm/factory';
+import multer from 'multer';
+import { HistoryStorage } from './modules/history/storage';
 
 dotenv.config();
 
@@ -37,6 +40,11 @@ app.use((req, res, next) => {
 });
 
 const sessionManager = new InterviewSessionManager();
+
+// Health Check
+app.get('/health', (req, res) => {
+    res.json({ status: 'online' });
+});
 
 // Brain Configuration Route
 app.get('/config/brain', (req, res) => {
@@ -94,20 +102,39 @@ app.get('/health', (req, res) => {
 app.post('/analyze-github', async (req, res) => {
     try {
         const { username, token } = req.body;
-        if (!username) return res.status(400).json({ error: 'Username required' });
+        if (!username) {
+            res.status(400).json({ error: 'Username required' });
+            return;
+        }
 
         const analyzer = new GitHubAnalyzer(username, token);
         await analyzer.fetchRepos();
-        const analysis = await analyzer.analyzeProjectsDeep(10);
+
+        // Conditional analysis: Deep with token, Light without
+        let analysis;
+        if (token) {
+            console.log('[Server] Token provided - Using DEEP analysis (10 projects)');
+            analysis = await analyzer.analyzeProjectsDeep(10);
+        } else {
+            console.log('[Server] No token - Using LIGHT analysis (10 projects, basic metadata only)');
+            analysis = await analyzer.analyzeProjectsLight(10);
+        }
+
+        if (analysis.length === 0 && analyzer.lastError) {
+            res.status(400).json({ error: analyzer.lastError });
+            return;
+        }
 
         res.json({
             username,
             projectCount: analysis.length,
+            analysisMode: token ? 'DEEP' : 'LIGHT',
             projects: analysis
         });
     } catch (error: any) {
         Logger.error('GitHub Analysis Error:', error);
         res.status(500).json({ error: 'GitHub API failed', details: error.message });
+        return;
     }
 });
 
@@ -115,7 +142,10 @@ app.post('/analyze-github', async (req, res) => {
 app.post('/verify-resume-file', upload.single('resume'), async (req, res) => {
     let filePath: string | undefined;
     try {
-        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+        if (!req.file) {
+            res.status(400).json({ error: 'No file uploaded' });
+            return;
+        }
 
         const { username } = req.body;
         filePath = req.file.path;
@@ -124,7 +154,8 @@ app.post('/verify-resume-file', upload.single('resume'), async (req, res) => {
         const resumeText = await extractor.extractText(filePath, req.file.mimetype);
 
         if (!resumeText || resumeText.trim().length === 0) {
-            return res.status(400).json({ error: 'Could not extract text from file.' });
+            res.status(400).json({ error: 'Could not extract text from file.' });
+            return;
         }
 
         const parser = new ResumeParser(resumeText);
@@ -147,7 +178,8 @@ app.post('/verify-resume-file', upload.single('resume'), async (req, res) => {
             username,
             claimsFound: claims.length,
             verification: verificationResults,
-            summary,
+            summary, // Honesty summary
+            resumeBio: parser.getEnhancedData()?.summary || "", // Resume bio
             timestamp: new Date().toISOString()
         });
 
@@ -161,12 +193,29 @@ app.post('/verify-resume-file', upload.single('resume'), async (req, res) => {
 // Interview Endpoints
 app.post('/interview/start', async (req, res) => {
     try {
-        const { username, context, brainType } = req.body;
-        if (!username) return res.status(400).json({ error: 'Username required' });
+        const { username, context, brainType, enableTraining } = req.body;
+        if (!username) {
+            res.status(400).json({ error: 'Username required' });
+            return;
+        }
+
+        const finalContext = context || { skills: [], projects: [], experience: [], githubStats: {} };
+
+        if (enableTraining) {
+            const storage = new HistoryStorage(username);
+            const history = await storage.loadHistory();
+            const recentHistory = history.slice(-5);
+            const weaknesses = new Set<string>();
+            recentHistory.forEach(h => h.weakestSkills.forEach(s => weaknesses.add(s)));
+
+            if (weaknesses.size > 0) {
+                finalContext.weaknesses = Array.from(weaknesses).slice(0, 5);
+            }
+        }
 
         const session = await sessionManager.createSession(
             username,
-            context || { skills: [], projects: [], experience: [], githubStats: {} },
+            finalContext,
             (brainType as BrainType) || 'local'
         );
 
@@ -185,18 +234,28 @@ app.post('/interview/start', async (req, res) => {
 app.post('/interview/answer', async (req, res) => {
     try {
         const { sessionId, answer } = req.body;
-        if (!sessionId || !answer) return res.status(400).json({ error: 'Session ID and answer required' });
+        if (!sessionId || !answer) {
+            res.status(400).json({ error: 'Session ID and answer required' });
+            return;
+        }
 
         const result = await sessionManager.submitAnswer(sessionId, answer);
         const nextQuestion = await sessionManager.getNextQuestion(sessionId);
         const session = sessionManager.getSession(sessionId);
+
+        const done = session?.status === 'completed' || !nextQuestion;
+
+        if (done) {
+            // Persist history
+            await sessionManager.completeSession(sessionId);
+        }
 
         res.json({
             feedback: result.feedback,
             score: result.score,
             satisfaction: result.satisfaction,
             nextQuestion,
-            done: session?.status === 'completed' || !nextQuestion
+            done
         });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
@@ -206,8 +265,117 @@ app.post('/interview/answer', async (req, res) => {
 app.get('/interview/summary/:sessionId', (req, res) => {
     try {
         const summary = sessionManager.getSessionSummary(req.params.sessionId);
-        if (!summary) return res.status(404).json({ error: 'Session not found' });
+        if (!summary) {
+            res.status(404).json({ error: 'Session not found' });
+            return;
+        }
         res.json(summary);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Growth Dashboard Endpoints
+
+// Get score progression
+app.get('/progress/:username', async (req, res) => {
+    try {
+        const storage = new HistoryStorage(req.params.username);
+        const progression = await storage.getScoreProgression();
+
+        // Safety check for empty progression
+        const currentScore = progression.length > 0 ? progression[progression.length - 1].score : 0;
+        const firstScore = progression.length > 0 ? progression[0].score : 0;
+
+        res.json({
+            username: req.params.username,
+            totalInterviews: progression.length,
+            scores: progression,
+            currentScore,
+            firstScore,
+            improvement: progression.length > 1 ? currentScore - firstScore : 0
+        });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get project impact
+app.get('/progress/:username/projects', async (req, res) => {
+    try {
+        const storage = new HistoryStorage(req.params.username);
+        const impact = await storage.getProjectImpact();
+
+        const projects = Array.from(impact.entries()).map(([name, delta]) => ({
+            name,
+            scoreImpact: delta,
+            verdict: delta > 15 ? 'HIGH_IMPACT' : delta > 5 ? 'MEDIUM_IMPACT' : 'LOW_IMPACT'
+        })).sort((a, b) => b.scoreImpact - a.scoreImpact);
+
+        res.json({ projects });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get next recommended action
+app.get('/progress/:username/next-action', async (req, res) => {
+    try {
+        const storage = new HistoryStorage(req.params.username);
+        const history = await storage.loadHistory();
+
+        if (history.length === 0) {
+            res.json({
+                action: 'Take your first interview',
+                reason: 'No baseline established yet'
+            });
+            return;
+        }
+
+        const latest = history[history.length - 1];
+
+        if (latest.score < 50) {
+            const weakSkills = latest.weakestSkills.length > 0 ? latest.weakestSkills : ['Basics'];
+            const ai = new AIQuestioner({ skills: [], projects: [], experience: [], githubStats: {} }, (process.env.BRAIN_TYPE as BrainType) || 'local');
+            const projectSpec = await ai.generateProjectSpec(weakSkills, latest.skillsTested);
+
+            res.json({
+                action: 'Fix critical gaps',
+                reason: `Score ${latest.score}/100 is below hire threshold`,
+                focus: weakSkills[0],
+                suggestedProject: projectSpec.title,
+                projectSpec // New detailed field
+            });
+            return;
+        }
+
+        if (latest.score < 70) {
+            const weakSkills = latest.weakestSkills.length > 0 ? latest.weakestSkills : ['Depth'];
+            const ai = new AIQuestioner({ skills: [], projects: [], experience: [], githubStats: {} }, (process.env.BRAIN_TYPE as BrainType) || 'local');
+            const projectSpec = await ai.generateProjectSpec(weakSkills, latest.skillsTested);
+
+            res.json({
+                action: 'Build depth projects',
+                reason: `Score ${latest.score}/100 is passing but weak`,
+                focus: weakSkills.slice(0, 2).join(', '),
+                suggestedProject: projectSpec.title,
+                projectSpec
+            });
+            return;
+        }
+
+        // Strong candidate - Level up
+        const ai = new AIQuestioner({ skills: [], projects: [], experience: [], githubStats: {} }, (process.env.BRAIN_TYPE as BrainType) || 'local');
+        const projectSpec = await ai.generateProjectSpec(['Advanced System Design', 'Leadership'], latest.skillsTested);
+
+        res.json({
+            action: 'Maintain and expand',
+            reason: `Score ${latest.score}/100 is strong`,
+            focus: 'Add 1-2 new skills with proof projects',
+            suggestedProject: projectSpec.title,
+            projectSpec
+        });
+
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
