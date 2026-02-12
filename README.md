@@ -80,7 +80,7 @@ FAB needs an AI to think. You have two options:
 
 | Dashboard | Analysis |
 |-----------|----------|
-| ![Dashboard]([https://via.placeholder.com/400x200?text=Dashboard+UI](https://ibb.co/5hzLH1HG)) | ![Analysis]([https://via.placeholder.com/400x200?text=Skill+Breakdown](https://ibb.co/vvsTb2RW)) |
+| ![Dashboard]((https://ibb.co/5hzLH1HG)) | ![Analysis]((https://ibb.co/vvsTb2RW)) |
 
 ---
 
@@ -112,4 +112,5 @@ If you have an open role or know someone who is hiring, please contact me:
 ---
 
 **License**: MIT. Use this tool to improve yourself, not to fake it! 💪
+
 
