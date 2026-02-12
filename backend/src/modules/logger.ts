@@ -1,88 +1,166 @@
-
-import fs from 'fs';
+import winston from 'winston';
+import DailyRotateFile from 'winston-daily-rotate-file';
 import path from 'path';
+import fs from 'fs';
 
 export enum LogLevel {
-    INFO = 'INFO',
-    WARN = 'WARN',
-    ERROR = 'ERROR',
-    DEBUG = 'DEBUG',
-    REQUEST = 'REQ',
-    BRAIN = 'BRAIN',
-    LLM = 'LLM'
+    INFO = 'info',
+    WARN = 'warn',
+    ERROR = 'error',
+    DEBUG = 'debug',
+    REQUEST = 'info', // Map to info for production consistency
+    BRAIN = 'info',
+    LLM = 'info'
 }
 
+// Sensitive keys to redact
+const SENSITIVE_KEYS = [
+    'token', 'access_token', 'authorization', 'code',
+    'secret', 'password', 'client_secret', 'GITHUB_CLIENT_SECRET',
+    'GITHUB_CLIENT_ID', 'cookie', 'set-cookie'
+];
+
+/**
+ * Recursively redacts sensitive keys from an object or string
+ */
+const sanitize = (val: any): any => {
+    if (typeof val !== 'object' || val === null) {
+        if (typeof val === 'string') {
+            // Check for common patterns if needed, but primarily key-based
+            return val;
+        }
+        return val;
+    }
+
+    if (Array.isArray(val)) {
+        return val.map(sanitize);
+    }
+
+    const sanitized: any = {};
+    for (const [key, value] of Object.entries(val)) {
+        if (SENSITIVE_KEYS.some(k => key.toLowerCase().includes(k.toLowerCase()))) {
+            sanitized[key] = '[REDACTED]';
+        } else {
+            sanitized[key] = sanitize(value);
+        }
+    }
+    return sanitized;
+};
+
+const redactFormat = winston.format((info) => {
+    const { message, ...meta } = info;
+
+    // Sanitize message if it's a string (regex-based for common patterns)
+    if (typeof message === 'string') {
+        let sanitizedMessage = message;
+        // Example: sanitize ghp_ tokens in message strings
+        sanitizedMessage = sanitizedMessage.replace(/ghp_[a-zA-Z0-9]{36}/g, '[REDACTED_TOKEN]');
+        info.message = sanitizedMessage;
+    }
+
+    // Sanitize metadata
+    const sanitizedMeta = sanitize(meta);
+    Object.assign(info, sanitizedMeta);
+
+    return info;
+});
+
+const logDir = path.resolve(process.cwd(), '../logs');
+if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+}
+
+const transports: winston.transport[] = [
+    // Console transport
+    new winston.transports.Console({
+        format: winston.format.combine(
+            winston.format.colorize(),
+            winston.format.timestamp({ format: 'HH:mm:ss' }),
+            winston.format.printf(({ level, message, timestamp, ...meta }) => {
+                const metaStr = Object.keys(meta).length ? `\n${JSON.stringify(meta, null, 2)}` : '';
+                return `${timestamp} ${level}: ${message}${metaStr}`;
+            })
+        ),
+        level: process.env.NODE_ENV === 'production' ? 'info' : 'debug'
+    }),
+
+    // Combined log rotation
+    new DailyRotateFile({
+        filename: path.join(logDir, 'combined-%DATE%.log'),
+        datePattern: 'YYYY-MM-DD',
+        maxSize: '20m',
+        maxFiles: '14d',
+        level: 'info'
+    }),
+
+    // Error log rotation
+    new DailyRotateFile({
+        filename: path.join(logDir, 'error-%DATE%.log'),
+        datePattern: 'YYYY-MM-DD',
+        maxSize: '20m',
+        maxFiles: '14d',
+        level: 'error'
+    }),
+
+    // Brain/LLM specific rotation
+    new DailyRotateFile({
+        filename: path.join(logDir, 'brain-%DATE%.log'),
+        datePattern: 'YYYY-MM-DD',
+        maxSize: '20m',
+        maxFiles: '7d',
+        level: 'info' // We filter this in the transport or using multiple loggers
+    })
+];
+
+const logger = winston.createLogger({
+    level: process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug'),
+    format: winston.format.combine(
+        winston.format.timestamp(),
+        redactFormat(),
+        process.env.NODE_ENV === 'production' ? winston.format.json() : winston.format.prettyPrint()
+    ),
+    transports
+});
+
 export class Logger {
-    private static logFile: string;
-    private static brainFile: string;
     private static currentBrainType: string = 'unknown';
 
-    static initialize() {
-        const logDir = path.resolve(process.cwd(), '../logs');
-        if (!fs.existsSync(logDir)) {
-            fs.mkdirSync(logDir, { recursive: true });
-        }
-        this.logFile = path.join(logDir, 'backend.log');
-        this.brainFile = path.join(logDir, 'brain_inference.log');
+    static info(message: string, meta?: any) {
+        logger.info(message, meta);
     }
 
-    private static formatMessage(level: LogLevel, message: string, meta?: any): string {
-        const timestamp = new Date().toISOString();
-        let logMsg = `[${timestamp}] [${level}] ${message}`;
-        if (meta) {
-            if (meta instanceof Error) {
-                logMsg += `\nStack: ${meta.stack}`;
-            } else {
-                logMsg += `\nMeta: ${JSON.stringify(meta, null, 2)}`;
-            }
-        }
-        return logMsg;
+    static warn(message: string, meta?: any) {
+        logger.warn(message, meta);
     }
 
-    static log(level: LogLevel, message: string, meta?: any) {
-        if (!this.logFile) this.initialize();
-
-        const formatted = this.formatMessage(level, message, meta);
-
-        // Console output (with colors)
-        const colors: { [key: string]: string } = {
-            [LogLevel.INFO]: '\x1b[36m', // Cyan
-            [LogLevel.WARN]: '\x1b[33m', // Yellow
-            [LogLevel.ERROR]: '\x1b[31m', // Red
-            [LogLevel.DEBUG]: '\x1b[90m', // Gray
-            [LogLevel.REQUEST]: '\x1b[35m', // Magenta
-            [LogLevel.BRAIN]: '\x1b[95m', // Bright Magenta
-            [LogLevel.LLM]: '\x1b[96m' // Bright Cyan
-        };
-        const reset = '\x1b[0m';
-
-        console.log(`${colors[level] || ''}[${level}]${reset} ${message}`);
-        if (meta && level === LogLevel.ERROR) console.error(meta);
-
-        // File output
-        fs.appendFileSync(this.logFile, formatted + '\n');
-
-        // Also write brain-related logs to brain file
-        if (level === LogLevel.BRAIN || level === LogLevel.LLM) {
-            fs.appendFileSync(this.brainFile, formatted + '\n');
+    static error(message: string, error?: any) {
+        if (error instanceof Error) {
+            logger.error(message, {
+                error: error.message,
+                stack: error.stack,
+                ...((error as any).meta || {})
+            });
+        } else {
+            logger.error(message, error);
         }
     }
 
-    static info(message: string, meta?: any) { this.log(LogLevel.INFO, message, meta); }
-    static warn(message: string, meta?: any) { this.log(LogLevel.WARN, message, meta); }
-    static error(message: string, error?: any) { this.log(LogLevel.ERROR, message, error); }
-    static debug(message: string, meta?: any) { this.log(LogLevel.DEBUG, message, meta); }
-    static request(message: string, meta?: any) { this.log(LogLevel.REQUEST, message, meta); }
+    static debug(message: string, meta?: any) {
+        logger.debug(message, meta);
+    }
 
-    // Brain-specific logging
+    static request(message: string, meta?: any) {
+        // High-level request logging
+        logger.info(`[REQ] ${message}`, meta);
+    }
+
     static setBrainType(brainType: string) {
         this.currentBrainType = brainType;
-        this.log(LogLevel.BRAIN, `Brain Type Set: ${brainType}`);
+        logger.info(`Brain Type Set: ${brainType}`);
     }
 
     static brain(message: string, meta?: any) {
-        const fullMessage = `[${this.currentBrainType.toUpperCase()}] ${message}`;
-        this.log(LogLevel.BRAIN, fullMessage, meta);
+        logger.info(`[BRAIN] [${this.currentBrainType.toUpperCase()}] ${message}`, meta);
     }
 
     static llmInference(endpoint: string, timeMs: number, tokensIn?: number, tokensOut?: number) {
@@ -94,13 +172,15 @@ export class Logger {
             tokensOut: tokensOut || 'N/A',
             tokensPerSec: tokensOut && timeMs > 0 ? Math.round(tokensOut / (timeMs / 1000)) : 'N/A'
         };
-        this.log(LogLevel.LLM, `Inference: ${endpoint} completed in ${timeMs}ms`, meta);
+        logger.info(`[LLM] Inference: ${endpoint} completed in ${timeMs}ms`, meta);
     }
 
     static githubApi(endpoint: string, status: number, timeMs: number) {
-        this.log(LogLevel.INFO, `GitHub API: ${endpoint} [${status}] ${timeMs}ms`);
+        logger.info(`[GITHUB] API: ${endpoint} [${status}] ${timeMs}ms`);
+    }
+
+    // Helper for correlation IDs
+    static withRequest(requestId: string) {
+        return logger.child({ requestId });
     }
 }
-
-// Initialize immediately
-Logger.initialize();

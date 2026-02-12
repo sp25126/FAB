@@ -21,6 +21,11 @@ interface EnhancedResumeData {
         name: string;
         tech: string[];
         description: string;
+        learnedSkills?: string[]; // [NEW]
+        projectType?: 'Web App' | 'CLI' | 'Library' | 'API' | 'Other'; // [NEW]
+        realWorldUtility?: string; // [NEW]
+        complexity?: 'BASIC' | 'INTERMEDIATE' | 'ADVANCED'; // [NEW] - Parity with GitHub
+        architecture?: string; // [NEW] - inferred
     }[];
     education: {
         degree: string;
@@ -65,7 +70,9 @@ export class ResumeParser {
             INSTRUCTIONS:
             1. Extract EVERYTHING you can find.
             2. Return ONLY valid JSON. No markdown. No explanations.
-            3. Format:
+            3. CRITICAL: For each project, Infer "learnedSkills", "projectType", "realWorldUtility".
+            4. ALSO INFER "complexity" (BASIC, INTERMEDIATE, ADVANCED) and "architecture" (e.g. MVC, Microservices) based on the tech stack and description.
+            5. Format:
             {
                 "languages": ["python", "javascript"],
                 "frameworks": ["react", "django", "express"],
@@ -83,7 +90,12 @@ export class ResumeParser {
                     {
                         "name": "Project Name",
                         "tech": ["react", "node"],
-                        "description": "Brief description"
+                        "description": "Brief description",
+                        "learnedSkills": ["System Design", "Async Programming"],
+                        "projectType": "Web App",
+                        "realWorldUtility": "Solves X problem for Y users",
+                        "complexity": "INTERMEDIATE",
+                        "architecture": "Microservices"
                     }
                 ],
                 "education": [
@@ -106,7 +118,16 @@ export class ResumeParser {
         this.enhancedData = {
             skills: [],
             experience: data.experience || [],
-            projects: data.projects || [],
+            projects: (data.projects || []).map((p: any) => ({
+                name: p.name,
+                tech: p.tech || [],
+                description: p.description,
+                learnedSkills: p.learnedSkills || [],
+                projectType: p.projectType || 'Other',
+                realWorldUtility: p.realWorldUtility || 'Personal Project',
+                complexity: p.complexity || this.calculateComplexity(p.description || '', p.tech || []),
+                architecture: p.architecture || this.inferArchitecture(p.description || '', p.tech || [])
+            })),
             education: data.education || [],
             certifications: data.certifications || [],
             summary: data.summary || '',
@@ -160,67 +181,60 @@ export class ResumeParser {
 
     async extractClaims(): Promise<ResumeClaim[]> {
         const brainType = process.env.BRAIN_TYPE || 'local';
-        const prompt = this.buildPrompt();
         let success = false;
 
-        // 1. Try Primary LLM Provider
         try {
+            // 1. Get Provider and Parse
             const provider = LLMFactory.getProvider();
-            console.log(`🧠 [PRIMARY] Using provider: ${provider.name}`);
-            console.log('🧠 Sending prompt to LLM...');
-            const response = await provider.generate(prompt);
-            console.log("🧠 LLM Response received");
+            console.log(`🧠 [RESUME] Using provider: ${provider.name}`);
 
-            const data = this.parseJsonSafely(response);
+            const data = await provider.parseResume(this.resumeText);
             const skillCount = this.countSkills(data);
-            console.log(`🧠 [PRIMARY] Extracted ${skillCount} skills`);
+
+            console.log(`🧠 [RESUME] Extracted ${skillCount} skills`);
 
             if (skillCount > 0) {
                 this.processLLMResponse(data, provider.name, false);
                 success = true;
-            } else if (brainType === 'remote') {
-                console.warn('⚠️ [FALLBACK] Remote brain returned 0 skills, trying local...');
-                // Fall through to local
-                throw new Error("Remote returned 0 skills");
             }
         } catch (error: any) {
-            console.error(`🧠 [PRIMARY] Failed: ${error.message}`);
-        }
+            console.error(`🧠 [RESUME] Primary AI Failed: ${error.message}`);
 
-        // 2. Try Local Fallback if primary failed
-        if (!success && brainType === 'remote') {
-            try {
-                console.log('🔄 [FALLBACK] Trying local Ollama...');
-                const localProvider = new OllamaProvider();
-                const response = await localProvider.generate(prompt);
-                console.log("🧠 [FALLBACK] Local LLM response received");
+            // 2. Fallback to Local if Remote failed
+            if (brainType === 'remote') {
+                try {
+                    console.log('🔄 [RESUME] Falling back to Local Ollama...');
+                    const localProvider = new OllamaProvider();
+                    const data = await localProvider.parseResume(this.resumeText);
+                    const skillCount = this.countSkills(data);
 
-                const data = this.parseJsonSafely(response);
-                const skillCount = this.countSkills(data);
-
-                if (skillCount > 0) {
-                    this.processLLMResponse(data, 'Local Ollama (Fallback)', true);
-                    success = true;
+                    if (skillCount > 0) {
+                        this.processLLMResponse(data, 'Local Ollama (Fallback)', true);
+                        success = true;
+                    }
+                } catch (localError: any) {
+                    console.error(`🧠 [RESUME] Local Fallback Failed: ${localError.message}`);
                 }
-            } catch (error: any) {
-                console.error(`🧠 [FALLBACK] Local Failed: ${error.message}`);
             }
         }
 
         // 3. Last Resort: Regex Extraction
         if (!success || this.claims.length === 0) {
-            console.warn("⚠️ [FALLBACK] AI failed completely. Using Regex extraction.");
+            // User requested NO MOCK DATA. Regex is semantic extraction, not mock.
+            // But to be safe, if even regex fails, we return empty, not fake.
+            console.warn("⚠️ [RESUME] AI failed completely. Using Regex extraction.");
             const regexClaims = this.extractRegexClaims();
 
             if (regexClaims.length > 0) {
                 this.claims = regexClaims;
                 this.enhancedData = {
                     skills: regexClaims,
+                    // Ensure these are empty, not "Create based on regex..."
                     experience: [],
                     projects: [],
                     education: [],
                     certifications: [],
-                    summary: "Create based on regex extraction (AI unavailable)",
+                    summary: "AI Unavailable - Skills Extracted via Pattern Matching",
                     usedFallback: true,
                     brainUsed: "Regex Pattern Matcher"
                 };
@@ -235,19 +249,6 @@ export class ResumeParser {
         return this.enhancedData;
     }
 
-    private parseJsonSafely(text: string): any {
-        require('fs').writeFileSync('llm_debug_response.txt', text);
-        try {
-            return JSON.parse(text);
-        } catch (e) {
-            const match = text.match(/```json([\s\S]*?)```/) || text.match(/\{[\s\S]*\}/);
-            if (match) {
-                try { return JSON.parse(match[1] || match[0]); } catch (e2) { return {}; }
-            }
-            return {};
-        }
-    }
-
     private countSkills(data: any): number {
         return (data.languages?.length || 0) +
             (data.frameworks?.length || 0) +
@@ -260,6 +261,35 @@ export class ResumeParser {
         if (cat.includes('frame')) return 'framework';
         if (cat.includes('tool')) return 'tool';
         return 'concept';
+    }
+
+    private calculateComplexity(description: string, tech: string[]): 'BASIC' | 'INTERMEDIATE' | 'ADVANCED' {
+        const text = (description + ' ' + tech.join(' ')).toLowerCase();
+
+        // Advanced keywords
+        if (text.match(/\b(microservices|distributed|scalable|high avail|throughput|latency|real-time|websocket|grpc|graphql|docker|kubernetes|aws|cloud|ai|ml|neural|vision|blockchain|crypto|security|auth|oauth|jwt|encryption|ci\/cd|pipeline)\b/)) {
+            return 'ADVANCED';
+        }
+
+        // Intermediate keywords
+        if (text.match(/\b(api|database|sql|nosql|react|angular|vue|next|express|django|flask|spring|full stack|backend|frontend|responsive|mobile|app)\b/)) {
+            return 'INTERMEDIATE';
+        }
+
+        return 'BASIC';
+    }
+
+    private inferArchitecture(description: string, tech: string[]): string {
+        const text = (description + ' ' + tech.join(' ')).toLowerCase();
+
+        if (text.includes('microservice')) return 'Microservices';
+        if (text.includes('serverless') || text.includes('lambda')) return 'Serverless';
+        if (text.includes('mvc') || text.includes('django') || text.includes('rails')) return 'MVC';
+        if (text.includes('spa') || text.includes('react') || text.includes('vue')) return 'SPA';
+        if (text.includes('api') || text.includes('rest') || text.includes('graphql')) return 'API-First';
+        if (text.includes('monolith')) return 'Monolith';
+
+        return 'N-Tier'; // Generic default
     }
 
     getClaims(): ResumeClaim[] {

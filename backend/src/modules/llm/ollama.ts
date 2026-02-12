@@ -1,14 +1,16 @@
 import axios from 'axios';
 import { LLMProvider } from './types';
+import { spawn } from 'child_process';
+import { Logger } from '../logger';
 
 export class OllamaProvider implements LLMProvider {
     public name = 'Ollama (Local)';
     private baseUrl: string;
     private model: string;
 
-    constructor(baseUrl: string = 'http://localhost:11434', model: string = 'gemma:2b') {
+    constructor(baseUrl: string = 'http://localhost:11434', model?: string) {
         this.baseUrl = baseUrl;
-        this.model = model;
+        this.model = model || process.env.LOCAL_BRAIN_MODEL || 'gemma2:2b';
     }
 
     async generate(prompt: string, options?: any): Promise<string> {
@@ -21,7 +23,7 @@ export class OllamaProvider implements LLMProvider {
             });
             return (response.data as any).response;
         } catch (error: any) {
-            console.error('Ollama Generate Error:', error.message);
+            Logger.error('Ollama Generate Error:', error);
             throw new Error('Failed to generate response from Ollama');
         }
     }
@@ -34,14 +36,37 @@ export class OllamaProvider implements LLMProvider {
             const response = await axios.post(`${this.baseUrl}/api/generate`, {
                 model: this.model,
                 prompt: jsonPrompt,
-                format: 'json', // Ollama supports this
-                stream: false
+                format: 'json',
+                stream: false,
+                options: {
+                    num_predict: 4096, // Increase token limit for long responses
+                    temperature: 0.7
+                }
+            }, {
+                timeout: 120000 // 2 minute timeout locally
             });
 
-            const content = (response.data as any).response;
-            return JSON.parse(content) as T;
+            let content = (response.data as any).response;
+
+            // CLEANUP: Handle Markdown code blocks if model ignores "JSON ONLY"
+            if (content.includes('```json')) {
+                content = content.replace(/```json\n?|\n?```/g, '');
+            } else if (content.includes('```')) {
+                content = content.replace(/```\n?|\n?```/g, '');
+            }
+
+            // CLEANUP: Trim noise
+            content = content.trim();
+
+            try {
+                return JSON.parse(content) as T;
+            } catch (parseError) {
+                Logger.error("JSON Parse Logic Failed. Raw Content:", content);
+                throw parseError;
+            }
+
         } catch (error: any) {
-            console.error('Ollama JSON Error:', error.message);
+            Logger.error('Ollama JSON Error:', error);
             throw new Error('Failed to generate JSON from Ollama');
         }
     }
@@ -52,6 +77,21 @@ export class OllamaProvider implements LLMProvider {
             return true;
         } catch (error) {
             return false;
+        }
+    }
+
+    async startService(): Promise<void> {
+        Logger.info("🚀 Attempting to auto-start Ollama service...");
+        try {
+            const process = spawn('ollama', ['serve'], {
+                detached: true,
+                stdio: 'ignore',
+                shell: true
+            });
+            process.unref();
+            console.log("✅ Ollama start command issued (detached)");
+        } catch (e: any) {
+            console.error("❌ Failed to start Ollama:", e.message);
         }
     }
 
@@ -90,6 +130,38 @@ export class OllamaProvider implements LLMProvider {
                 breakdown: { accuracy: 50, depth: 50, communication: 50 },
                 satisfaction: 50
             };
+        }
+    }
+    async parseResume(resumeText: string): Promise<any> {
+        const prompt = `
+            Analyze this resume text and extract ALL information into a comprehensive JSON object.
+            
+            RESUME TEXT:
+            "${resumeText.substring(0, 4000)}"
+
+            INSTRUCTIONS:
+            1. Extract EVERYTHING you can find.
+            2. Return ONLY valid JSON. No markdown. No explanations.
+            3. Format:
+            {
+                "languages": ["python", "javascript"],
+                "frameworks": ["react", "django"],
+                "tools": ["docker", "git"],
+                "concepts": ["agile", "rest api"],
+                "experience": [{"company": "Name", "role": "Title", "duration": "Dates", "highlights": ["..."]}],
+                "projects": [{"name": "Title", "tech": ["stack"], "description": "..."}],
+                "education": [{"degree": "Degree", "institution": "Name", "year": "Year"}],
+                "certifications": ["Cert Name"],
+                "summary": "Brief summary"
+            }
+            If a section has no data, use empty array [].
+        `;
+
+        try {
+            return await this.generateJSON<any>(prompt);
+        } catch (e) {
+            Logger.error('Ollama Resume Parse Error:', e);
+            throw e;
         }
     }
 }

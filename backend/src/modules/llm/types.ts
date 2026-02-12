@@ -4,4 +4,5 @@ export interface LLMProvider {
     generateJSON<T>(prompt: string, schema?: any): Promise<T>;
     healthCheck(): Promise<boolean>;
     evaluateAnswer(question: string, answer: string, expectedPoints?: string[], context?: string): Promise<any>;
+    parseResume(resumeText: string): Promise<any>;
 }

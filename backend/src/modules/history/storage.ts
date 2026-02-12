@@ -15,6 +15,7 @@ export interface InterviewRecord {
     projectsFocused: string[];
     weakestSkills: string[];
     notes?: string;
+    improvementPlan?: any; // [NEW] Deep feedback
 }
 
 export class HistoryStorage {

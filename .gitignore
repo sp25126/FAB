@@ -33,5 +33,17 @@ __pycache__/
 test-*.txt
 *.log
 
+# Databases
+*.sqlite
+*.db
+
+# Temp
+temp/
+
 # Personal resumes (don't commit)
 *Resume*.pdf
+
+# Chat Logs / Internal Reports
+chatITR*
+CLEANUP_REPORT.txt
+DIRECTORY_REPORT.md

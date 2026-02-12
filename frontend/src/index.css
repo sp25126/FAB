@@ -2,7 +2,86 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: dark;
+}
+
 body {
-    background-color: #020617; /* Slate 950 */
-    color: #e2e8f0;
+  @apply bg-obsidian text-gray-200 font-sans selection:bg-neon-cyan selection:text-obsidian-950 overflow-hidden;
+}
+
+/* Glassmorphism Utilities */
+.glass-panel {
+  @apply bg-obsidian-925/60 backdrop-blur-xl border border-white/5 shadow-xl transition-all duration-300;
+}
+
+.glass-panel-hover {
+  @apply hover:bg-obsidian-900/80 hover:border-white/10 hover:shadow-neon-cyan/20 hover:-translate-y-1;
+}
+
+.glass-card {
+  @apply bg-white/5 backdrop-blur-sm border border-white/5 rounded-xl transition-all duration-300;
+}
+
+/* Text Gradients */
+.text-gradient {
+  @apply bg-clip-text text-transparent bg-gradient-to-r;
+}
+
+.text-gradient-cyan {
+  @apply bg-gradient-to-r from-neon-cyan via-cyan-400 to-blue-500;
+}
+
+.text-gradient-purple {
+  @apply bg-gradient-to-r from-neon-purple via-purple-400 to-pink-500;
+}
+
+.text-gradient-gold {
+  @apply bg-gradient-to-r from-yellow-300 via-neon-amber to-orange-500;
+}
+
+/* Animations */
+.animate-enter {
+  animation: enter 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.delay-100 {
+  animation-delay: 100ms;
+}
+
+.delay-200 {
+  animation-delay: 200ms;
+}
+
+.delay-300 {
+  animation-delay: 300ms;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-obsidian-950;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-obsidian-800 rounded-full border-2 border-obsidian-950 hover:bg-obsidian-600 transition-colors;
+}
+
+/* Glow effect when scrolling (added via JS) */
+.scrolling-glow::-webkit-scrollbar-thumb {
+  @apply bg-neon-cyan;
+  box-shadow: 0 0 10px rgba(0, 242, 234, 0.8);
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.animate-shimmer {
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
 }

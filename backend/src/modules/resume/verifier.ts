@@ -145,8 +145,8 @@ export class ClaimVerifier {
     constructor(githubAnalyzer: GitHubAnalyzer) {
         this.githubAnalyzer = githubAnalyzer;
         const analysis = githubAnalyzer.getDetailedAnalysis();
-        this.githubLanguages = analysis.languages.map(l => l.toLowerCase());
-        this.repoNames = analysis.topProjects.map(p => p.name.toLowerCase());
+        this.githubLanguages = analysis.languages.map((l: string) => l.toLowerCase());
+        this.repoNames = analysis.topProjects.map((p: any) => p.name.toLowerCase());
     }
 
     verifyClaim(skill: string): VerificationResult {

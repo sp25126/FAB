@@ -1,6 +1,7 @@
 import { LLMProvider } from './types';
 import { OllamaProvider } from './ollama';
 import axios from 'axios';
+import { Logger } from '../logger';
 
 export class RemoteProvider implements LLMProvider {
     public name = 'Remote (Colab GPU)';
@@ -12,11 +13,11 @@ export class RemoteProvider implements LLMProvider {
         this.localProvider = new OllamaProvider();
 
         if (!this.baseUrl) {
-            console.warn('⚠️ REMOTE_BRAIN_URL not configured, defaulting to fallback mode');
+            Logger.warn('⚠️ REMOTE_BRAIN_URL not configured, defaulting to fallback mode');
         } else {
             // Remove trailing slash if present
             this.baseUrl = this.baseUrl.replace(/\/$/, '');
-            console.log(`🌐 RemoteProvider initialized with URL: ${this.baseUrl}`);
+            Logger.info(`🌐 Remote (GPU) initialized with URL: ${this.baseUrl.substring(0, 20)}...`);
         }
     }
 
@@ -24,13 +25,13 @@ export class RemoteProvider implements LLMProvider {
         if (!this.baseUrl) return this.localProvider.generate(prompt, options);
 
         try {
-            console.log(`🌐 Sending request to Colab brain...`);
+            Logger.info(`🌐 [Cloud Brain] Processing request...`);
 
             const response = await axios.post(
                 `${this.baseUrl}/generate`,
                 { prompt: prompt },
                 {
-                    timeout: 120000,  // 2 minute timeout for slow GPU
+                    timeout: 180000,  // 3 minute timeout for slow GPU
                     headers: {
                         'Content-Type': 'application/json',
                         'ngrok-skip-browser-warning': 'true'  // Skip ngrok warning page
@@ -39,13 +40,16 @@ export class RemoteProvider implements LLMProvider {
             );
 
             const data = response.data as any;
-            console.log(`🌐 Colab response received`);
+            Logger.info(`🌐 [Cloud Brain] Response received`);
 
             // Colab returns { result: "..." }
             return data.result || data.response || JSON.stringify(data);
         } catch (error: any) {
-            console.warn(`⚠️ Cloud Brain failed: ${error.message}. Falling back to Local Brain.`);
-            return this.localProvider.generate(prompt, options);
+            console.warn(`⚠️ Cloud Brain failed: ${error.message}`);
+            if (error.response?.data) {
+                console.warn(`⚠️ Cloud Error details:`, JSON.stringify(error.response.data));
+            }
+            throw error;
         }
     }
 
@@ -105,7 +109,7 @@ Return JSON ONLY:
 }`;
 
         try {
-            console.log(`🌐 Calling Cloud Brain with Custom Persona...`);
+            Logger.info(`🌐 [Cloud Brain] Evaluating answer with Persona...`);
             // Use generic generate to inject system prompt
             const response = await axios.post(
                 `${this.baseUrl}/generate`,
@@ -131,20 +135,8 @@ Return JSON ONLY:
             return JSON.parse(result);
 
         } catch (error: any) {
-            console.warn(`⚠️ Cloud evaluation failed, falling back to local.`);
-
-            try {
-                return await this.localProvider.generateJSON<any>(prompt);
-            } catch (fallbackError) {
-                console.warn(`⚠️ Local fallback failed: ${fallbackError}. Returning mock response.`);
-                return {
-                    score: 50,
-                    feedback: "Service unavailable. Proceeding with neutral score.",
-                    satisfaction: 50,
-                    redFlags: [],
-                    breakdown: { accuracy: 50, depth: 50, communication: 50 }
-                };
-            }
+            console.warn(`⚠️ Cloud evaluation failed: ${error.message}`);
+            throw error;
         }
     }
 
@@ -153,7 +145,7 @@ Return JSON ONLY:
      */
     async generateQuestions(skills: string[], projects: any[], count: number = 3): Promise<any[]> {
         try {
-            console.log(`🌐 Calling /generate-questions on Colab brain...`);
+            Logger.info(`🌐 [Cloud Brain] /generate-questions...`);
             const response = await axios.post(
                 `${this.baseUrl}/generate-questions`,
                 { skills, projects, count },
@@ -169,21 +161,37 @@ Return JSON ONLY:
             const data = response.data as { questions?: any[] };
             return data.questions || [];
         } catch (error: any) {
-            console.warn(`⚠️ Cloud question generation failed, falling back to local.`);
+            console.warn(`⚠️ Cloud question generation failed: ${error.message}`);
+            throw error;
+        }
+    }
+    async parseResume(resumeText: string): Promise<any> {
+        if (!this.baseUrl) return this.localProvider.parseResume(resumeText);
 
-            const prompt = `Generate ${count} technical interview questions based on:
-Skills: ${skills.slice(0, 5).join(', ')}
-Projects: ${projects.map(p => p.name).join(', ')}
+        try {
+            Logger.info(`🌐 [Cloud Brain] /analyze-resume...`);
+            const response = await axios.post(
+                `${this.baseUrl}/analyze-resume`,
+                { resume_text: resumeText },
+                {
+                    timeout: 120000,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'ngrok-skip-browser-warning': 'true'
+                    }
+                }
+            );
 
-Return JSON array of strings.`;
-
-            // Simple fallback: generate a list of strings
-            try {
-                const raw = await this.localProvider.generateJSON<string[]>(prompt);
-                return Array.isArray(raw) ? raw.map(q => ({ text: q, type: 'TECHNICAL', difficulty: 'MEDIUM' })) : [];
-            } catch (e) {
-                return [];
+            const data = response.data as any;
+            if (data.analysis) {
+                console.log(`🌐 Resume analyzed by cloud brain`);
+                return data.analysis;
             }
+            throw new Error("No analysis data returned");
+
+        } catch (error: any) {
+            console.warn(`⚠️ Cloud resume analysis failed: ${error.message}`);
+            throw error;
         }
     }
 }

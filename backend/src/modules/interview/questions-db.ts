@@ -6,7 +6,7 @@
  * - Technical: Framework-specific, language-specific
  */
 
-import { Question } from './rag-questioner';
+import { Question } from './types';
 
 export const BEHAVIORAL_QUESTIONS: Question[] = [
     {

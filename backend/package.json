@@ -13,6 +13,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@octokit/rest": "^22.0.1",
     "axios": "^1.13.4",
     "cheerio": "^1.2.0",
     "cors": "^2.8.6",
@@ -23,7 +24,12 @@
     "node-fetch": "^2.7.0",
     "pdf-extraction": "^1.0.2",
     "pdf-parse": "^1.1.4",
-    "pdf-to-text": "^0.0.7"
+    "pdf-to-text": "^0.0.7",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7",
+    "uuid": "^13.0.0",
+    "winston": "^3.19.0",
+    "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
     "@types/axios": "^0.9.36",
@@ -31,9 +37,10 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/multer": "^2.0.0",
-    "@types/node": "^25.2.0",
+    "@types/node": "^25.2.2",
     "@types/node-fetch": "^2.6.13",
     "@types/pdf-parse": "^1.1.5",
+    "@types/uuid": "^10.0.0",
     "nodemon": "^3.1.11",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"

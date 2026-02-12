@@ -1,152 +1,114 @@
-# FAB - Brutal Truth Resume Agent 🔥
+# 🦅 FAB - The Brutal Resume Verifier
 
-**Your Resume. The Harsh Reality.**
+**"Your Resume. The Harsh Reality."**
 
-FAB is an AI-powered resume verification system that exposes skill claims before interviewers do. It cross-references your resume against your GitHub profile to identify:
-- ✅ **VERIFIED** skills with evidence
-- ⚠️ **WEAK** claims needing work
-- ❌ **OVERCLAIMED** skills to remove
-- 🤖 **THE INTERROGATOR**: Dynamic project-based interview questions using RAG.
+[![Watch the Demo](https://img.youtube.com/vi/aZr25Oo_l4o/0.jpg)](https://youtu.be/aZr25Oo_l4o)
+
+**[Watch the Full Video Walkthrough](https://youtu.be/aZr25Oo_l4o)**
 
 ---
 
-## 🚀 Quick Start
+## 🧐 What is this?
 
-### Option 1: CLI (Recommended)
+**FAB** is an AI-powered agent that acts like a strict technical interviewer. It reads your resume, scans your GitHub repositories, and exposes the truth about your skills.
+
+*   ✅ **Verifies Claims**: Checks if you actually have code to back up "Expert React" on your resume.
+*   🔎 **Detects Gaps**: Finds skills you list but haven't used in public projects.
+*   🧠 ** AI Interrogator**: Generates specific, project-based interview questions to test your knowledge.
+*   📈 **Project Roadmap**: Gives you a concrete plan to build projects and fill your skill gaps.
+
+---
+
+## 🚀 Beginner's Quick Start Guide
+
+You don't need to be an expert to run this. Follow these simple steps.
+
+### Prerequisites
+*   **Node.js** (Version 18 or higher) - [Download Here](https://nodejs.org/)
+*   **Git** - [Download Here](https://git-scm.com/)
+*   (Optional) **Ollama** - If you want to run the AI locally on your PC.
+
+### 1. Clone the Project
+Open your terminal (Command Prompt or PowerShell) and run:
 ```bash
-python run.py
+git clone https://github.com/YOUR_USERNAME/FAB.git
+cd FAB
 ```
-1. Choose `1` for **Local** (Ollama) or `2` for **Cloud** (Colab GPU)
-2. If Cloud: Enter your ngrok URL (see [SETUP.md](SETUP.md))
-3. Enter path to your resume PDF
-4. Get the **brutal truth**!
 
-### Option 2: Direct API
+### 2. Install Dependencies
+This command installs all the necessary code libraries for both the frontend (website) and backend (server).
 ```bash
-# Start backend
-cd backend && npm install && npm run dev
-
-# Analyze resume
-curl -X POST http://localhost:3000/verify-resume-file \
-  -F "resume=@resume.pdf" \
-  -F "username=your_github_username"
+npm run install:all
 ```
+*(This looks for a `scripts` folder or runs `npm install` in both folders. If that command doesn't exist, run `npm install` inside `backend/` and `frontend/` separately).*
 
----
+### 3. Setup Configuration
+1.  Duplicate the `.env.example` file and rename it to `.env`.
+2.  Open `.env` in a text editor (Notepad, VS Code).
+3.  Fill in your **GitHub Client ID** and **Secret**. (See [Setup Guide](SETUP_GUIDE.md) for how to get these for free).
 
-## ⚡ Features
-
-| Feature | Description |
-|---------|-------------|
-| **Dual AI Brain** | Local Ollama OR Cloud GPU (Colab) |
-| **Deep GitHub Intelligence** | **10x Depth**: Scans code, READMEs, and Dockerfiles across top 10 repos. |
-| **RAG Scraper** | Discover real-world interview questions based on your specific projects. |
-| **Brutal Scoring** | **40/40/20 Metric**: Accuracy, Depth, and Clarity analyzed by AI. |
-| **Project Rotation** | 2 Strikes on a project = AI pivots to a new repo automatically. |
-| **Auto Fallback** | If Cloud fails, falls back to Local |
-| **Skill Extraction** | Languages, frameworks, tools, concepts from PDF |
-
----
-
-## 📊 Sample Output
-
-```json
-{
-  "claimsFound": 15,
-  "verification": [
-    {
-      "skill": "react",
-      "verdict": "OVERCLAIMED",
-      "recommendation": "❌ DANGER! Remove or build proof.",
-      "projectIdea": "Build a Task Manager with React + Redux",
-      "learningPath": "React docs → 3 mini-projects → Redux → Deploy",
-      "howToFix": "Create 2-3 public React repos with README"
-    }
-  ],
-  "summary": {
-    "honestyScore": 25,
-    "risk": "HIGH",
-    "actionPlan": [
-      "🚨 URGENT: Remove or build proof for 11 overclaimed skills",
-      "📌 Top priority: react, django, express"
-    ]
-  },
-  "brutalTruth": "Your resume is mostly lies. Interviewers will catch this."
-}
+### 4. Run the App!
+Start the system with one simple command:
+```bash
+npm run dev
 ```
+This will start:
+*   Frontend at: `http://localhost:5173`
+*   Backend at: `http://localhost:3000`
+
+Click the link in your terminal to open the app in your browser!
 
 ---
 
-## 🏗️ Architecture
+## 🧠 AI Brain Setup (Local vs. Cloud)
 
-```
-FAB/
-├── backend/                # Node.js + TypeScript API
-│   ├── data/               # Persistent JSON storage (Isolated from Nodemon)
-│   └── src/
-│       ├── server.ts       # Express server (10MB Payload support)
-│       └── modules/
-│           ├── llm/        # AI providers (Ollama, Remote)
-│           ├── interview/  # RAG Questioner & Session logic
-│           ├── resume/     # Parser, Verifier
-│           └── github/     # GitHub API analyzer (Recursive deep scan)
-├── tools/colab-brain/      # Google Colab GPU script
-├── run.py                  # Highly resilient CLI interface
-├── DIARY.md                # 600+ Line technical implementation diary
-├── STATUS.md               # Phase-wise progress report
-└── SETUP.md                # Environment & Colab setup guide
-```
+FAB needs an AI to think. You have two options:
+
+### Option A: Local Brain (Free & Private)
+1.  Download [Ollama](https://ollama.com/).
+2.  Run `ollama run gemma2:2b` in a separate terminal.
+3.  In FAB Settings, select **"Local Core"**.
+
+### Option B: Cloud Brain (Faster & Smarter)
+1.  We provide a free Google Colab script to run a powerful AI on Google's GPUs.
+2.  Open the [Setup Guide](SETUP_GUIDE.md) to learn how to deploy it in 2 minutes.
+3.  In FAB Settings, select **"Remote Uplink"** and paste your URL.
 
 ---
 
-## 🔧 Configuration
+## 📸 Screenshots
 
-### Environment Variables (`.env`)
-```env
-BRAIN_TYPE=local          # or "remote"
-REMOTE_BRAIN_URL=         # ngrok URL for Colab
-OLLAMA_MODEL=gemma:2b     # Local LLM model
-```
-
-### Brain Types
-| Type | Description | Speed |
-|------|-------------|-------|
-| `local` | Ollama on your machine | ~50s |
-| `remote` | Colab GPU via ngrok | ~20s |
+| Dashboard | Analysis |
+|-----------|----------|
+| ![Dashboard](https://via.placeholder.com/400x200?text=Dashboard+UI) | ![Analysis](https://via.placeholder.com/400x200?text=Skill+Breakdown) |
 
 ---
 
-## 📖 Documentation
-
-- [SETUP.md](SETUP.md) - Colab GPU brain setup
-- [report.md](report.md) - Development journey & bug fixes
-
----
-
-## 🛠️ Tech Stack
-
-- **Backend:** Node.js, TypeScript, Express
-- **AI:** Ollama (gemma:2b), Colab GPU (Qwen2.5-1.5B)
-- **PDF:** pdf-parse
-- **API:** GitHub REST API
+## 🛠️ Built With
+*   **Frontend**: React, TailwindCSS, Framer Motion (for those smooth animations)
+*   **Backend**: Node.js, Express, TypeScript
+*   **AI**: Ollama, Transformers (HuggingFace), LangChain ideas
+*   **Database**: SQLite (Simple, file-based)
 
 ---
 
-## 📈 Roadmap
-
-- [x] Phase 1: Core resume verification
-- [x] Dual brain support (Local + Cloud)
-- [x] Enhanced skill recommendations
-- [x] Fallback system
-- [x] **Phase 2: Deep Intelligence & Interrogation**
-    - [x] Recursive GitHub Analysis
-    - [x] RAG-based Question Discovery
-    - [x] Project Rotation & Strike System
-- [ ] Phase 3: Desktop UI (Flet Dashboard)
-- [ ] Phase 4: Resume rewriting suggestions
+## 🤝 Contributing
+Found a bug? Want to add a feature?
+1.  Fork the repo.
+2.  Create a new branch (`git checkout -b feature/amazing-feature`).
+3.  Commit your changes.
+4.  Push to the branch.
+5.  Open a Pull Request.
 
 ---
 
-## 📄 License
+## 📬 Open for Opportunities!
 
-MIT License - Use responsibly. Don't fake interviews, fix your skills! 💪
+**I am currently looking for immediate job opportunities.**
+If you have an open role or know someone who is hiring, please contact me:
+
+📧 **Email**: [saumyavishwam@gmail.com](mailto:saumyavishwam@gmail.com)
+
+---
+
+**License**: MIT. Use this tool to improve yourself, not to fake it! 💪
